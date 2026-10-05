@@ -1,67 +1,129 @@
-# Bản web: Python + S3, không cần máy cá nhân chạy liên tục
+# Hướng dẫn triển khai Web: Vercel + Cloudflare R2 (Hoàn toàn Miễn phí)
 
-## Luồng hiện tại
+Tài liệu này hướng dẫn chi tiết cách triển khai ứng dụng lên **Vercel** kết hợp lưu trữ **Cloudflare R2**. 
+Giải pháp này **hoàn toàn 0đ/tháng**, không giới hạn 12 tháng như AWS, và **miễn phí 100% băng thông tải xuống (Zero Egress Fees)**.
 
-Vercel phục vụ giao diện và chạy Python. File nguồn tải trực tiếp vào S3 riêng tư bằng URL có hạn. Function tải nguồn, tạo và đối chiếu Family, lưu cả phiên vào S3 rồi mới báo thành công. Instance khác sẽ khôi phục phiên từ S3; `/tmp` chỉ là bản làm việc. Excel/ZIP cũng tải trực tiếp qua signed URL, tránh giới hạn payload Vercel.
+---
 
-Khi bấm **Lưu** trên nguồn, Python tính lại các sheet rồi tạo toàn bộ Family trong phiên mới. Bộ tính hỗ trợ phép toán, phần trăm, so sánh, tham chiếu ô/vùng giữa các sheet, hợp vùng, `SUM` và `WEEKNUM`. Hàm chưa hỗ trợ, công thức mảng, liên kết ngoài và tham chiếu vòng sẽ chặn lưu và giữ phiên trước. Đây là bộ tính dành cho lịch hiện tại, không thay thế mọi tính năng Excel.
+## 1. Tổng quan kiến trúc & Hạn mức miễn phí
 
-IndexedDB giữ bản nháp; mở lại cùng file trong cùng phiên sẽ khôi phục bản nháp có cùng revision. Cookie HttpOnly có chữ ký tách workspace mỗi trình duyệt, tối đa một năm. Xóa cookie/đổi trình duyệt sẽ tạo workspace khác: phiên vẫn còn trên S3 nhưng chưa có đăng nhập để lấy lại trên thiết bị khác.
+- **Vercel (Gói Hobby - Miễn phí):** Chạy giao diện web HTML/JS và Serverless Python API.
+- **Cloudflare R2 (Gói Free Tier vĩnh viễn):**
+  - **10 GB dung lượng lưu trữ** miễn phí mỗi tháng (lưu được hàng chục nghìn file Excel).
+  - **1.000.000 lượt ghi (Class A - PUT, POST, LIST)** miễn phí mỗi tháng.
+  - **10.000.000 lượt đọc (Class B - GET)** miễn phí mỗi tháng.
+  - **Miễn phí băng thông tải về (Egress $0)**: Không lo bị tính tiền khi người dùng tải nhiều file Excel/ZIP.
+- **Luồng hoạt động:** 
+  Trình duyệt tải file Excel nguồn trực tiếp lên Cloudflare R2 qua **Signed URL** (tránh giới hạn payload của Vercel). Vercel Function tải file từ R2 về xử lý, tính toán công thức, sinh các Family và lưu kết quả ngược lại R2.
 
-## Biến môi trường Vercel
+---
 
-Tạo bucket AWS S3 **Private**, bật Block Public Access. Cấu hình cho đúng môi trường rồi Redeploy:
+## 2. Các bước thiết lập Cloudflare R2
 
-```text
-SHIPMENT_S3_BUCKET=ten-bucket
-SHIPMENT_S3_REGION=ap-southeast-1
-SHIPMENT_S3_ACCESS_KEY_ID=...
-SHIPMENT_S3_SECRET_ACCESS_KEY=...
-SHIPMENT_SESSION_SECRET=chuoi-ngau-nhien-it-nhat-32-ky-tu
-SHIPMENT_CALCULATOR=python
-```
+### Bước 2.1: Đăng ký / Đăng nhập Cloudflare
+1. Truy cập [dash.cloudflare.com](https://dash.cloudflare.com/) và đăng ký tài khoản miễn phí (nếu chưa có).
+2. Tại menu bên trái, chọn **R2** (hoặc **Storage & Databases** → **R2**).
+3. Nếu là lần đầu vào R2, Cloudflare có thể yêu cầu kích hoạt dịch vụ R2 (chọn gói Free).
 
-Tạo secret bằng `python -c "import secrets; print(secrets.token_urlsafe(48))"`. Giữ nguyên secret qua các lần deploy để cookie cũ còn hiệu lực. Không đưa credentials vào JavaScript hay Git. Không đặt `SHIPMENT_API_TOKEN` trên Vercel (biến của backend Windows cũ). `SHIPMENT_BACKEND_URL` và `EXCEL_WORKER_URL` không cần trong chế độ S3 + Python.
+### Bước 2.2: Tạo Bucket trên R2
+1. Trong trang quản lý R2, bấm nút **Create bucket**.
+2. Đặt tên bucket (ví dụ: `shipment-data` - chỉ dùng chữ thường, số và dấu gạch ngang `-`).
+3. Vị trí (Location): Chọn **Automatic** (hoặc khu vực APAC / Châu Á).
+4. Bấm **Create bucket**.
 
-Tùy chọn: `SHIPMENT_S3_PREFIX=shipment`, `SHIPMENT_S3_ENDPOINT=https://...` cho dịch vụ tương thích S3 có hỗ trợ signed URL và conditional writes/deletes `If-None-Match`, `If-Match`. Khuyến nghị kiểm chứng trên AWS S3 trước. Chưa có bucket/credentials của bạn để kiểm thử dịch vụ thật; kiểm thử lưu/khôi phục dùng S3 giả lập.
+### Bước 2.3: Cấu hình CORS cho Bucket
+Cấu hình CORS để trình duyệt web có thể tải file trực tiếp lên Cloudflare R2:
+1. Trong Bucket vừa tạo (`shipment-data`), chuyển sang tab **Settings**.
+2. Kéo xuống mục **CORS Policy**, chọn **Add CORS policy** (hoặc Edit).
+3. Dán đoạn JSON sau vào:
+   ```json
+   [
+     {
+       "AllowedOrigins": [
+         "https://*.vercel.app",
+         "http://localhost:8765"
+       ],
+       "AllowedMethods": [
+         "GET",
+         "PUT",
+         "HEAD"
+       ],
+       "AllowedHeaders": [
+         "*"
+       ],
+       "ExposeHeaders": [
+         "ETag"
+       ],
+       "MaxAgeSeconds": 3600
+     }
+   ]
+   ```
+   > **Lưu ý:** Sau khi Vercel cấp tên miền chính thức của bạn (ví dụ `https://ten-du-an.vercel.app`), bạn có thể thêm chính xác domain đó vào `AllowedOrigins`.
+4. Bấm **Save**.
 
-Quyền IAM: `s3:ListBucket` trên bucket; `s3:GetObject`, `s3:PutObject`, `s3:DeleteObject` trên prefix dự án. Không cấp public ACL. Mã không tự tạo dịch vụ có phí; chi phí lưu trữ/truyền dữ liệu thuộc tài khoản cloud của bạn.
+### Bước 2.4: Tạo API Token (Lấy S3 Credentials)
+1. Quay lại trang chủ **R2** (menu trái chọn R2 Overview).
+2. Ở cột bên phải, tìm mục **Account Details**, copy lại **Account ID** (chuỗi ký tự ví dụ: `a1b2c3d4e5f6...`).
+3. Cũng tại cột bên phải, bấm vào link **Manage R2 API Tokens**.
+4. Bấm nút **Create API token**:
+   - **Token name:** `vercel-shipment-token`
+   - **Permissions:** Chọn **Object Read & Write**.
+   - **Specify bucket(s):** Chọn **Apply to specific buckets only** và chọn bucket vừa tạo (`shipment-data`), hoặc chọn **Apply to all buckets**.
+   - **TTL:** Để mặc định (Forever) trừ khi bạn muốn đổi định kỳ.
+5. Bấm **Create API Token**.
+6. **LƯU Ý QUAN TRỌNG:** Màn hình sẽ hiển thị thông tin token một lần duy nhất, hãy sao chép lại ngay:
+   - **Access Key ID**: Chuỗi ký tự (dùng cho `SHIPMENT_S3_ACCESS_KEY_ID`)
+   - **Secret Access Key**: Chuỗi ký tự bí mật (dùng cho `SHIPMENT_S3_SECRET_ACCESS_KEY`)
 
-## CORS của bucket
+---
 
-AWS Console → S3 → bucket → Permissions → CORS. Thay origin đúng domain website, không có dấu `/` cuối:
+## 3. Cấu hình Biến Môi Trường trên Vercel
 
-```json
-[
-  {
-    "AllowedOrigins": ["https://TEN-DU-AN.vercel.app"],
-    "AllowedMethods": ["PUT", "GET", "HEAD"],
-    "AllowedHeaders": ["*"],
-    "ExposeHeaders": ["ETag"],
-    "MaxAgeSeconds": 3600
-  }
-]
-```
+1. Đăng nhập vào [Vercel Dashboard](https://vercel.com/dashboard) và chọn dự án của bạn.
+2. Vào **Settings** → **Environment Variables**.
+3. Thêm lần lượt các biến môi trường sau (áp dụng cho cả Production, Preview, Development):
 
-Signed URL có hạn 10 phút. Thêm origin Preview cụ thể khi cần. File tối đa 45 MB được kiểm tra trước giải nén. Bucket chứa `shipment/jobs`, `shipment/snapshots`, `shipment/uploads`, `shipment/downloads`, `shipment/locks`; mỗi prefix có workspace riêng.
+| Tên biến | Giá trị mẫu | Ghi chú |
+| :--- | :--- | :--- |
+| `SHIPMENT_S3_BUCKET` | `shipment-data` | Tên bucket bạn đã tạo ở Bước 2.2 |
+| `SHIPMENT_S3_REGION` | `auto` | Vùng Cloudflare R2 (để `auto`) |
+| `SHIPMENT_S3_ENDPOINT` | `https://<ACCOUNT_ID>.r2.cloudflarestorage.com` | Thay `<ACCOUNT_ID>` bằng Account ID ở Bước 2.4 |
+| `SHIPMENT_S3_ACCESS_KEY_ID` | `c123...` | Access Key ID tạo ở Bước 2.4 |
+| `SHIPMENT_S3_SECRET_ACCESS_KEY` | `89abc...` | Secret Access Key tạo ở Bước 2.4 |
+| `SHIPMENT_SESSION_SECRET` | *(chuỗi ngẫu nhiên 32+ ký tự)* | Khóa bí mật mã hóa cookie phiên (xem lệnh tạo bên dưới) |
+| `SHIPMENT_CALCULATOR` | `python` | Dùng bộ tính toán Python tích hợp sẵn |
 
-Thiết lập lifecycle xóa `shipment/uploads/` và `shipment/downloads/` sau 1 ngày. Không tự xóa `jobs/` hoặc `snapshots/` nếu cần giữ lịch sử. Xóa phiên trong app xóa manifest; các snapshot còn lại cần quy trình retention quản trị riêng. Khóa `locks/` ngăn hai request cùng lưu một phiên. Nếu Function bị dừng cưỡng bức, khóa có thể được giành lại sau 10 phút bằng conditional write; không xóa khóa của request khác. Giữ giới hạn Function 300 giây như `vercel.json`.
+> **Cách tạo `SHIPMENT_SESSION_SECRET`:**  
+> Mở terminal máy tính và chạy lệnh:
+> ```powershell
+> python -c "import secrets; print(secrets.token_urlsafe(48))"
+> ```
+> Copy chuỗi kết quả và dán vào giá trị của `SHIPMENT_SESSION_SECRET`.
 
-## Thời gian và cập nhật
+4. Sau khi thêm đủ các biến, vào tab **Deployments** trên Vercel → bấm nút **...** ở bản deploy mới nhất → chọn **Redeploy** để Vercel nạp các biến môi trường mới.
 
-Python xử lý trong Function hiện tại và gửi progress trực tiếp. Cần Fluid Compute và đủ thời gian thực thi (mục tiêu 300 giây). Chưa có hàng đợi chạy tác vụ độc lập: workbook vượt giới hạn thời gian cần chuyển phần xử lý sang worker có hàng đợi. Không chạy Excel desktop hoặc phụ thuộc máy Windows.
+---
 
-Deploy giao diện và server cùng nhau. Giữ bucket, prefix, session secret ổn định. Dữ liệu S3 không phụ thuộc vòng đời bản deploy. Phiên cũ đã mất trong `/tmp` cần tải lại nguồn.
+## 4. Kiểm tra hoạt động sau khi triển khai
 
-## Kiểm tra sau deploy
+1. Mở trang web Vercel của bạn trên trình duyệt (hoặc kiểm tra `https://ten-du-an.vercel.app/api/config`):
+   - Đảm bảo trả về `"cloud_storage": true`.
+2. **Thử tải file Excel:** Kéo thả một file Excel nguồn vào trang web.
+   - Quan sát tab *Network* của trình duyệt (F12): File sẽ được `PUT` trực tiếp lên endpoint của Cloudflare R2 (`...r2.cloudflarestorage.com`).
+   - Serverless function xử lý và hiển thị tiến trình xử lý mượt mà.
+3. **Thử tải kết quả:** Bấm tải từng Family hoặc "Tải tất cả các file", file sẽ được tải về trực tiếp từ R2 qua Signed URL.
+4. **Bản nháp & Phiên:** Tải lại trang, phiên làm việc trước đó vẫn còn nguyên vẹn.
 
-1. `/api/config` trả `cloud_storage: true`; browser có cookie `shipment_workspace`.
-2. Upload >4,5 MB phải PUT trực tiếp tới S3; POST `/api/jobs` chỉ chứa JSON nhỏ với `upload_key`.
-3. Tạo xong, tải lại trang, mở lại phiên, tải Excel/ZIP qua signed URL.
-4. Sửa ô trên sheet thị trường, Lưu và đối chiếu SUM/Family. Công thức chưa hỗ trợ phải giữ bản nháp và không công bố kết quả.
-5. Nhập vài ô chưa lưu, tải lại trang, mở lại đúng file: bản nháp được khôi phục.
-6. Trình duyệt khác không được thấy lịch sử workspace trước.
+---
 
-Kiểm thử: `uv sync --frozen`, `uv run python -m unittest discover -s test`, `node --test test/test_inline_editor.cjs test/test_progress.cjs test/test_session_ui.cjs`.
+## 5. Dọn dẹp dữ liệu tự động (Lifecycle Rules - Tùy chọn)
 
-Nguồn: [S3 CORS](https://docs.aws.amazon.com/AmazonS3/latest/userguide/cors.html), [WEEKNUM](https://support.microsoft.com/en-us/excel/functions/weeknum-function), [Vercel Function limits](https://vercel.com/docs/functions/limitations).
+Để giữ dung lượng luôn dưới hạn mức 10 GB miễn phí:
+1. Vào Cloudflare Dashboard → R2 → Bucket `shipment-data` → **Settings**.
+2. Tìm mục **Object lifecycle rules** → Chọn **Add rule**.
+3. Thiết lập:
+   - **Rule name:** `auto-delete-temp`
+   - **Prefix:** `shipment/uploads/`
+   - **Action:** Delete objects sau **1 ngày** (vì file tạm tải lên sau khi xử lý xong không cần giữ lại).
+4. Bạn có thể thêm rule tương tự cho `shipment/downloads/` sau **1 ngày**.
+5. Thư mục `shipment/jobs/` và `shipment/snapshots/` giữ nguyên nếu bạn muốn lưu lại lịch sử kết quả.
