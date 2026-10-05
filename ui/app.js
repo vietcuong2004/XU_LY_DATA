@@ -165,6 +165,7 @@ document.addEventListener('keydown',e=>{
 });
 
 function showView(view){
+  if(view!=='progress') stopProgressClock();
   state.view=view;
   const busy=view==='progress';
   if($('view-upload')) $('view-upload').hidden=false;
@@ -291,6 +292,41 @@ if (btnUseLocal) {
   });
 }
 let currentUploadRequest = null;
+let progressClock = null;
+let progressStarted = 0;
+function stopProgressClock(){
+  clearInterval(progressClock);progressClock=null;
+}
+function startProgressClock(){
+  stopProgressClock();progressStarted=Date.now();
+  const tick=()=>{ $('progress-time').textContent=`Đã chạy: ${Math.floor((Date.now()-progressStarted)/1000)} giây`; };
+  tick();progressClock=setInterval(tick,1000);
+}
+function renderJobProgress(job){
+  if(isCancelled)return;
+  $('progress-message').textContent=job.message;
+  const known=job.total>0;
+  const ready=job.status==='ready';
+  const checking=job.phase==='validate';
+  // Reserve the final portion for the actual source comparison pass.
+  const pct=ready?100:known?Math.min(99,Math.floor(checking?
+    80+19*(job.checked||0)/job.total:80*job.completed/job.total)):0;
+  document.querySelector('.progress-track')?.classList.toggle('indeterminate',!known&&!ready);
+  $('progress-fill').style.width=known||ready?`${pct}%`:'25%';
+  if($('progress-percent'))$('progress-percent').textContent=known||ready?`${pct}%`:'Đang xử lý';
+  $('progress-count').textContent=known?`(${checking?job.checked||0:job.completed} / ${job.total} Family${checking?' đối chiếu':''})`:'Đọc và kiểm tra cấu trúc';
+  if($('progress-eta'))$('progress-eta').textContent=ready?'Hoàn tất!':checking?'Đang đối chiếu…':'Đang xử lý…';
+}
+
+function progressDecoder(onJob){
+  let offset=0, pending='';
+  return (text,final=false)=>{
+    pending+=text.slice(offset);offset=text.length;
+    const lines=pending.split('\n');pending=lines.pop();
+    if(final&&pending.trim()){lines.push(pending);pending='';}
+    for(const line of lines)if(line.trim())onJob(JSON.parse(line));
+  };
+}
 let isCancelled = false;
 
 function cancelCurrentProcess(){
@@ -363,7 +399,14 @@ async function uploadJob(options){
     const request=new XMLHttpRequest();
     currentUploadRequest=request;
     request.open('POST','/api/jobs');
-    request.responseType='json';
+    request.setRequestHeader('Accept','application/x-ndjson');
+    let latest=null,streamError=null;
+    const decode=progressDecoder(job=>{latest=job;renderJobProgress(job);});
+    const streaming=()=>request.getResponseHeader('Content-Type')?.includes('application/x-ndjson');
+    request.onprogress=()=>{
+      if(isCancelled||!streaming())return;
+      try{decode(request.responseText);}catch(error){streamError=error;}
+    };
     request.upload.onprogress=event=>{
       if(!event.lengthComputable || isCancelled)return;
       const percent=Math.round(event.loaded/event.total*100);
@@ -373,8 +416,16 @@ async function uploadJob(options){
     request.onload=()=>{
       currentUploadRequest=null;
       if(isCancelled){reject(new Error('ABORTED'));return;}
-      if(request.status>=200&&request.status<300&&request.response){resolve(request.response);return;}
-      reject(new Error(request.response?.error || (request.status===413?'File vượt giới hạn tải lên của máy chủ.':'Máy chủ chưa tiếp nhận được file. Vui lòng thử lại.')));
+      try{
+        if(streaming()){
+          decode(request.responseText,true);
+          if(streamError)throw streamError;
+          if(latest?.status==='error')throw new Error(latest.message);
+          if(latest?.status!=='ready')throw new Error('Kết nối kết thúc trước khi xử lý xong. Hãy kiểm tra phiên trong lịch sử.');
+        }else latest=JSON.parse(request.responseText);
+        if(request.status>=200&&request.status<300&&latest){resolve(latest);return;}
+        throw new Error(latest?.error || 'Máy chủ chưa tiếp nhận được file.');
+      }catch(error){reject(new Error(request.status===413?'File vượt giới hạn tải lên của máy chủ.':error.message));}
     };
     request.onabort=()=>{
       currentUploadRequest=null;
@@ -396,6 +447,7 @@ async function startProcessing(){
     if($('process-button')) $('process-button').disabled=true;
     setExportState(false);
     showView('progress');$('progress-message').textContent='Đang tải file lên…';$('progress-count').textContent='Khởi tạo';$('progress-fill').style.width='5%';
+    startProgressClock();
     if($('progress-percent')) $('progress-percent').textContent='0%';
     if($('progress-eta')) $('progress-eta').textContent='Đang ước tính...';
     $('progress-time').textContent='Đã chạy: 0 giây';
@@ -405,7 +457,7 @@ async function startProcessing(){
     const job=await uploadJob(payload);
     if(isCancelled) return;
     state.job=job;state.report=null;state.preview=null;
-    await pollJob(job.id);
+    await pollJob(job.id,job);
   }catch(error){
     if(error.message==='ABORTED'||isCancelled)return;
     showView('upload');$('upload-error').textContent=error.message;$('upload-error').hidden=false;
@@ -415,43 +467,18 @@ async function startProcessing(){
 const btnProcess = $('process-button');
 if(btnProcess) btnProcess.addEventListener('click', startProcessing);
 
-async function pollJob(id){
+async function pollJob(id,receivedJob=null){
   if(isCancelled) return;
   clearTimeout(state.poll);
-  const job=await api(`/api/jobs/${id}`);
+  const job=receivedJob || await api(`/api/jobs/${id}`);
   if(isCancelled) return;
   state.job=job;
-  $('progress-message').textContent=job.message;
-  const elapsedSeconds=Math.max(0,Math.floor((Date.now()-new Date(job.created))/1000));
-  $('progress-time').textContent=`Đã chạy: ${elapsedSeconds} giây`;
-  const hasProgress=job.total>0;
-  const track=document.querySelector('.progress-track');
-  if(track) track.classList.toggle('indeterminate',!hasProgress);
-  const pct = hasProgress ? Math.min(100, Math.round((job.completed/job.total)*100)) : 0;
-  $('progress-fill').style.width=hasProgress?`${(job.completed/job.total)*100}%`:'25%';
-  if($('progress-percent')) $('progress-percent').textContent=hasProgress?`${pct}%`:'0%';
-  $('progress-count').textContent=hasProgress?`(${job.completed} / ${job.total} Family)`:'Đọc và kiểm tra cấu trúc';
-  if($('progress-eta')){
-    if(hasProgress && job.completed > 0){
-      const remaining=job.total - job.completed;
-      if(remaining <= 0){
-        $('progress-eta').textContent='Hoàn tất!';
-      } else {
-        const rate=job.completed / Math.max(1, elapsedSeconds);
-        const etaSec=Math.max(1, Math.round(remaining / rate));
-        if(etaSec < 60){
-          $('progress-eta').textContent=`~${etaSec} giây`;
-        } else {
-          const m=Math.floor(etaSec / 60);
-          const s=etaSec % 60;
-          $('progress-eta').textContent=`~${m}p ${s}s`;
-        }
-      }
-    } else {
-      $('progress-eta').textContent='Đang ước tính...';
-    }
+  renderJobProgress(job);
+  if(job.status==='ready'){
+    await openJob(id, 'review');
+    loadConfig().catch(error=>toast(error.message,true));
+    return;
   }
-  if(job.status==='ready'){await openJob(id, 'upload');await loadConfig();return;}
   if(job.status==='error'){setExportState(false);showView('upload');$('upload-error').textContent=job.message;$('upload-error').hidden=false;await loadConfig();return;}
   if(!isCancelled){
     state.poll=setTimeout(()=>pollJob(id).catch(error=>{if(!isCancelled){toast(error.message,true);showView('upload');}}),1200);
@@ -518,7 +545,7 @@ $('history').addEventListener('click', async e => {
     const job = await api(`/api/jobs/${button.dataset.openJob}`);
     if(job.status==='ready') await openJob(job.id, 'upload');
     else if(job.status==='error') toast(job.message,true);
-    else { showView('progress'); await pollJob(job.id); }
+    else { showView('progress'); startProgressClock(); await pollJob(job.id); }
   } catch(error) {
     toast(error.message,true);
   }
@@ -631,6 +658,7 @@ async function openJob(id, targetTab = 'upload'){
   document.querySelectorAll('[data-filter]').forEach(e=>e.classList.toggle('active',e.dataset.filter==='all'));
   renderMetrics();renderFamilies();
   updateUploadStateUI();
+  showView(targetTab);
   await loadPreview();
   history.replaceState(null,'',`?job=${id}`);
   switchTab(targetTab);

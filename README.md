@@ -136,9 +136,12 @@ d:\XU_LY_DATA/
 
 ## 5. Kiểm thử hệ thống (Unit & Regression Tests)
 
-Chạy toàn bộ 18 bài test kiểm thử tự động để đảm bảo tính ổn định:
+Chạy các bài kiểm thử Python và giao diện:
 
 ```powershell
 python -m unittest discover
+node --test test/test_inline_editor.cjs test/test_progress.cjs
 ```
 Mọi trường hợp về ô gộp phức tạp, công thức lũy kế, khôi phục giá trị gốc, xử lý tuần ISO và độc lập liên kết đều được kiểm thử tự động thành công (100% PASS).
+
+Tiến độ tạo file được gửi trực tiếp qua cùng yêu cầu tải lên (`application/x-ndjson`), kể cả trên Vercel. Thanh tiến độ dành 0–80% cho tạo Family, 80–99% cho đối chiếu với nguồn và chỉ hiển thị 100% khi báo cáo đã lưu xong. Đây là tỷ lệ theo các bước hoàn thành, không phải phần trăm thời gian. Đồng hồ chạy trên trình duyệt từ lúc bấm tạo; hoàn tất sẽ đóng lớp tiến độ và mở tab kết quả. Cần deploy lại cả giao diện và `ui_server.py` để áp dụng.

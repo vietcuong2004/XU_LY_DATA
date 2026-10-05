@@ -154,7 +154,7 @@ def parse_payload(content_type, raw):
     return {**options, **payload}
 
 
-def create_job(payload):
+def create_job(payload, on_progress=None):
     week = int(payload.get('week', 40))
     season = str(payload.get('season', '2728')).strip()
     if not 1 <= week <= 53 or not re.fullmatch(r'[A-Za-z0-9_-]{1,20}', season):
@@ -192,6 +192,10 @@ def create_job(payload):
     args = SimpleNamespace(input=str(source), template=str(template), output=str(folder/'files'),
                            family=None, season=season, week=week, start_week=start, end_week=end,
                            date=None, strict=False, overwrite=False, source_name=source_name)
+    if on_progress is not None:
+        on_progress(state)
+        generate(job_id, args, on_progress=on_progress)
+        return read_job(job_id)
     if os.environ.get('VERCEL'):
         # A plain background thread may be suspended after a function responds.
         # Finish within this invocation rather than leave polling stuck forever.
@@ -201,12 +205,19 @@ def create_job(payload):
     return state
 
 
-def generate(job_id, args):
+def generate(job_id, args, on_progress=None):
+    def publish(**changes):
+        state = update_job(job_id, **changes)
+        if on_progress is not None:
+            on_progress(state)
+        return state
+
     try:
-        update_job(job_id, status='processing', message='Đang đọc SUM và tạo các file Family…')
-        args.on_progress = lambda done, total, name: update_job(
-            job_id, completed=done, total=total, message=f'Đã tạo {done}/{total} file · {name}')
+        publish(status='processing', phase='generate', message='Đang đọc SUM và tạo các file Family…')
+        args.on_progress = lambda done, total, name: publish(
+            completed=done, total=total, message=f'Đã tạo {done}/{total} file · {name}')
         report = process.run(args)
+        publish(phase='validate', checked=0, message='Đang đối chiếu các file với nguồn…')
         folder = directory(job_id)
         baseline = folder / 'baseline'
         baseline.mkdir()
@@ -253,12 +264,13 @@ def generate(job_id, args):
                                      workbook=exported, original_workbook=exported))
             finally:
                 exported.close()
+            publish(checked=index + 1, message=f'Đã đối chiếu {index + 1}/{len(report["families"])} file')
         source_values.close()
         write_json(folder/'review.json', report)
-        update_job(job_id, status='ready', total=len(report['families']), completed=len(report['families']),
+        publish(status='ready', total=len(report['families']), completed=len(report['families']),
                    message='Đã tạo xong. Bạn có thể kiểm tra và chỉnh sửa.')
     except Exception as exc:
-        update_job(job_id, status='error', message=str(exc))
+        publish(status='error', message=str(exc))
 
 
 def reconcile_source(reader, path, entry, workbook=None):
@@ -1093,6 +1105,8 @@ class Handler(BaseHTTPRequestHandler):
             if not isinstance(payload, dict):
                 raise ValueError('Dữ liệu yêu cầu không hợp lệ.')
             if self.path == '/api/jobs':
+                if 'application/x-ndjson' in self.headers.get('Accept', ''):
+                    return self.stream_job(payload)
                 return self.send(create_job(payload), 202)
             if self.path == '/api/jobs/clear':
                 deleted = 0
@@ -1116,6 +1130,38 @@ class Handler(BaseHTTPRequestHandler):
             self.send({'error': 'Không tìm thấy đường dẫn.'}, 404)
         except (ValueError, TypeError, KeyError, IndexError, OSError, argparse.ArgumentTypeError) as exc:
             self.send({'error': str(exc)}, 400)
+
+    def stream_job(self, payload):
+        """Keep the invocation alive and flush real progress as each step completes."""
+        started = False
+        disconnected = False
+
+        def emit(state):
+            nonlocal started, disconnected
+            if disconnected:
+                return
+            try:
+                if not started:
+                    self.send_response(200)
+                    self.send_header('Content-Type', 'application/x-ndjson; charset=utf-8')
+                    self.send_header('Cache-Control', 'no-store, no-transform')
+                    self.send_header('X-Accel-Buffering', 'no')
+                    self.end_headers()
+                    started = True
+                self.wfile.write((json.dumps(state, ensure_ascii=False) + '\n').encode('utf-8'))
+                self.wfile.flush()
+            except OSError:
+                # Finish the job even if the browser disconnects.
+                disconnected = True
+
+        try:
+            create_job(payload, on_progress=emit)
+        except Exception as exc:
+            if not started:
+                return self.send({'error': str(exc)}, 400)
+            emit({'status': 'error', 'message': str(exc)})
+        finally:
+            self.close_connection = True
 
     def do_DELETE(self):
         try:
