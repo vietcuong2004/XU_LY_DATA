@@ -20,4 +20,11 @@ main{margin-left:0}.topbar{height:64px}.single-brand{font-size:23px;font-weight:
 .tab-content{width:100%}
 .tab-content[hidden]{display:none!important}
 @media(max-width:720px){.main-tabs{padding:0 16px;gap:4px}.main-tab{padding:12px 14px;font-size:12px;gap:6px}}
+/* Dropzone clear button and internal process button */
+.dropzone{position:relative}
+.clear-file-btn{position:absolute;top:12px;right:12px;width:28px;height:28px;border-radius:50%;border:1px solid #d4dfd7;background:#ffffff;color:#798d81;display:none;place-items:center;font-size:12px;cursor:pointer;transition:all .15s ease;box-shadow:0 2px 6px #0000000d;z-index:5}
+.clear-file-btn:hover{background:#feecea;color:#c0493e;border-color:#f6c0ba}
+.dropzone.loaded .clear-file-btn{display:grid}
+.process-btn-inside{margin-top:6px;padding:10px 22px;font-size:12px;font-weight:600;display:inline-flex;align-items:center;gap:12px;box-shadow:0 4px 14px #147d6928}
+.choose-file{cursor:pointer}
 

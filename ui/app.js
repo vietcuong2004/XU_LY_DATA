@@ -49,12 +49,28 @@ function showView(view){
   const hist=$('history');
   if(hist) hist.inert=busy;
   $('process-button').disabled=busy || (!state.input && !state.useLocal);
+  $('clear-input').disabled=busy;
   if(view==='review'){
     switchTab('review');
   } else if(view==='progress'||view==='upload'){
     switchTab('upload');
   }
 }
+
+function clearInputFile(e){
+  if(e){e.preventDefault();e.stopPropagation();}
+  state.input=null;
+  state.useLocal=false;
+  $('input-file').value='';
+  $('input-title').textContent='Kéo file Excel vào đây';
+  $('input-subtitle').textContent='hoặc nhấn để chọn file từ máy tính · tối đa 45 MB';
+  $('drop-input').classList.remove('loaded');
+  $('choose-file-btn').hidden=false;
+  $('process-button').hidden=true;
+  $('process-button').disabled=true;
+  $('upload-error').hidden=true;
+}
+$('clear-input').addEventListener('click',clearInputFile);
 
 function inputChanged(file){
   if(!file)return;
@@ -63,14 +79,31 @@ function inputChanged(file){
   state.input=file;state.useLocal=false;
   $('input-title').textContent=file.name;
   $('input-subtitle').textContent=`${(file.size/1024/1024).toFixed(2)} MB · Đã chọn file nguồn`;
-  $('drop-input').classList.add('loaded');$('process-button').disabled=false;
+  $('drop-input').classList.add('loaded');
+  $('choose-file-btn').hidden=true;
+  $('process-button').hidden=false;
+  $('process-button').disabled=false;
+  $('upload-error').hidden=true;
 }
 $('input-file').addEventListener('change',e=>inputChanged(e.target.files[0]));
+$('drop-input').addEventListener('click',e=>{
+  if(e.target.closest('#clear-input')||e.target.closest('#process-button'))return;
+  if(!state.input&&!state.useLocal){$('input-file').click();}
+});
 $('template-file').addEventListener('change',e=>{const file=e.target.files[0];if(!file)return;if(!file.name.toLowerCase().endsWith('.xlsx')||file.size>45*1024*1024)return toast('Chọn file mẫu .xlsx tối đa 45 MB.',true);state.template=file;$('template-name').textContent=file.name;});
 for(const event of ['dragenter','dragover'])$('drop-input').addEventListener(event,e=>{e.preventDefault();$('drop-input').classList.add('dragging');});
 for(const event of ['dragleave','drop'])$('drop-input').addEventListener(event,e=>{e.preventDefault();$('drop-input').classList.remove('dragging');});
 $('drop-input').addEventListener('drop',e=>inputChanged(e.dataTransfer.files[0]));
-$('use-local').addEventListener('click',()=>{state.useLocal=true;state.input=null;$('input-title').textContent=state.config.local_input;$('input-subtitle').textContent='Đã chọn file có sẵn trong thư mục làm việc';$('drop-input').classList.add('loaded');$('process-button').disabled=false;});
+$('use-local').addEventListener('click',()=>{
+  state.useLocal=true;state.input=null;
+  $('input-title').textContent=state.config.local_input;
+  $('input-subtitle').textContent='Đã chọn file có sẵn trong thư mục làm việc';
+  $('drop-input').classList.add('loaded');
+  $('choose-file-btn').hidden=true;
+  $('process-button').hidden=false;
+  $('process-button').disabled=false;
+  $('upload-error').hidden=true;
+});
 function readFile(file){return new Promise((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve({name:file.name,data:reader.result.split(',')[1]});reader.onerror=()=>reject(new Error('Không đọc được file.'));reader.readAsDataURL(file);});}
 $('process-button').addEventListener('click',async()=>{
   $('upload-error').hidden=true;

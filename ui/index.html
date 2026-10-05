@@ -29,12 +29,20 @@
       <div class="upload-layout">
         <div class="card upload-card">
           <div class="card-header"><div><h2>Tạo file Excel từ kế hoạch tổng</h2><p>Chọn file nguồn, bấm tạo, rồi xem và chỉnh sửa kết quả tại tab Sửa & xuất kết quả.</p></div><span class="small-tag">.xlsx · SUM</span></div>
-          <label class="dropzone" id="drop-input" for="input-file"><input id="input-file" type="file" accept=".xlsx"><span class="upload-symbol">↥</span><strong id="input-title">Kéo file Excel vào đây</strong><span id="input-subtitle">hoặc nhấn để chọn file từ máy tính · tối đa 45 MB</span><span class="choose-file">Chọn file nguồn <span>↗</span></span></label>
+          <div class="dropzone" id="drop-input">
+            <input id="input-file" type="file" accept=".xlsx" hidden>
+            <button type="button" id="clear-input" class="clear-file-btn" title="Xóa file để chọn lại" aria-label="Xóa file">✕</button>
+            <span class="upload-symbol">↥</span>
+            <strong id="input-title">Kéo file Excel vào đây</strong>
+            <span id="input-subtitle">hoặc nhấn để chọn file từ máy tính · tối đa 45 MB</span>
+            <label for="input-file" class="choose-file" id="choose-file-btn">Chọn file nguồn <span>↗</span></label>
+            <button type="button" id="process-button" class="button primary process-btn-inside" hidden>Tách file <span>→</span></button>
+          </div>
           <button id="use-local" class="local-file" hidden><span>▤</span><span>Dùng file nguồn có sẵn trong thư mục<small id="local-name"></small></span><span>↗</span></button>
           <div class="template-row"><span class="template-icon">▧</span><div><strong>File mẫu định dạng</strong><p id="template-name">Đang kiểm tra mẫu…</p></div><label class="button secondary compact" for="template-file">Đổi mẫu<input id="template-file" type="file" accept=".xlsx" hidden></label></div>
           <details class="settings"><summary>Tùy chọn xuất file <span>⌄</span></summary><div class="settings-grid"><label>Mùa kế hoạch<input id="season" value="2728" maxlength="20" placeholder="2728"></label><label>Tuần báo cáo<div class="input-prefix"><span>WK</span><input id="report-week" type="number" min="1" max="53" value="40"></div></label><label>Từ tuần <span class="optional">tùy chọn</span><input id="start-week" placeholder="2026/42" aria-label="Từ tuần"></label><label>Đến tuần <span class="optional">tùy chọn</span><input id="end-week" placeholder="2027/52" aria-label="Đến tuần"></label></div><p class="settings-help">Để trống khoảng tuần để giữ toàn bộ lịch trong nguồn.</p></details>
           <div id="upload-error" class="error-box" role="alert" hidden></div>
-          <div class="card-footer"><span>✓ File nguồn luôn được giữ nguyên</span><button id="process-button" class="button primary" disabled>Tạo các file Family <span>→</span></button></div>
+          <div class="card-footer"><span>✓ File nguồn luôn được giữ nguyên</span></div>
         </div>
       </div>
     </section>
