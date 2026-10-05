@@ -145,8 +145,12 @@ $('process-button').addEventListener('click',async()=>{
     if(!state.input&&!state.useLocal)throw new Error('Hãy chọn file nguồn.');
     if(!state.template&&!state.config.template)throw new Error('Hãy chọn file mẫu BARBIE.');
     $('process-button').disabled=true;
-    showView('progress');$('progress-message').textContent='Đang tải file lên…';$('progress-count').textContent='Chuẩn bị file';$('progress-fill').style.width='4%';
-    document.querySelector('.progress-track').classList.add('indeterminate');
+    showView('progress');$('progress-message').textContent='Đang tải file lên…';$('progress-count').textContent='Khởi tạo';$('progress-fill').style.width='5%';
+    if($('progress-percent')) $('progress-percent').textContent='0%';
+    if($('progress-eta')) $('progress-eta').textContent='Đang ước tính...';
+    $('progress-time').textContent='Đã chạy: 0 giây';
+    const initialTrack=document.querySelector('.progress-track');
+    if(initialTrack) initialTrack.classList.add('indeterminate');
     const payload={week,season,start,end,use_local:state.useLocal};
     if(state.input)payload.input=await readFile(state.input);
     if(state.template)payload.template=await readFile(state.template);
@@ -160,11 +164,35 @@ async function pollJob(id){
   clearTimeout(state.poll);
   const job=await api(`/api/jobs/${id}`);state.job=job;
   $('progress-message').textContent=job.message;
-  $('progress-time').textContent=`${Math.max(0,Math.floor((Date.now()-new Date(job.created))/1000))} giây`;
+  const elapsedSeconds=Math.max(0,Math.floor((Date.now()-new Date(job.created))/1000));
+  $('progress-time').textContent=`Đã chạy: ${elapsedSeconds} giây`;
   const hasProgress=job.total>0;
-  document.querySelector('.progress-track').classList.toggle('indeterminate',!hasProgress);
-  $('progress-fill').style.width=hasProgress?`${job.completed/job.total*100}%`:'25%';
-  $('progress-count').textContent=hasProgress?`${job.completed} / ${job.total} Family`:'Đọc và kiểm tra cấu trúc';
+  const track=document.querySelector('.progress-track');
+  if(track) track.classList.toggle('indeterminate',!hasProgress);
+  const pct = hasProgress ? Math.min(100, Math.round((job.completed/job.total)*100)) : 0;
+  $('progress-fill').style.width=hasProgress?`${(job.completed/job.total)*100}%`:'25%';
+  if($('progress-percent')) $('progress-percent').textContent=hasProgress?`${pct}%`:'0%';
+  $('progress-count').textContent=hasProgress?`(${job.completed} / ${job.total} Family)`:'Đọc và kiểm tra cấu trúc';
+  if($('progress-eta')){
+    if(hasProgress && job.completed > 0){
+      const remaining=job.total - job.completed;
+      if(remaining <= 0){
+        $('progress-eta').textContent='Hoàn tất!';
+      } else {
+        const rate=job.completed / Math.max(1, elapsedSeconds);
+        const etaSec=Math.max(1, Math.round(remaining / rate));
+        if(etaSec < 60){
+          $('progress-eta').textContent=`~${etaSec} giây`;
+        } else {
+          const m=Math.floor(etaSec / 60);
+          const s=etaSec % 60;
+          $('progress-eta').textContent=`~${m}p ${s}s`;
+        }
+      }
+    } else {
+      $('progress-eta').textContent='Đang ước tính...';
+    }
+  }
   if(job.status==='ready'){await openJob(id);await loadConfig();return;}
   if(job.status==='error'){showView('upload');$('upload-error').textContent=job.message;$('upload-error').hidden=false;await loadConfig();return;}
   state.poll=setTimeout(()=>pollJob(id).catch(error=>{toast(error.message,true);showView('upload');}),1200);

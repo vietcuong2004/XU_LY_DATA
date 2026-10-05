@@ -112,7 +112,36 @@
         </div>
       </div>
     </section>
-    <section id="view-progress" class="page" hidden><div class="progress-card card"><div class="processing-icon"><span class="spinner"></span></div><span class="eyebrow">ĐANG CHUẨN BỊ WORKSPACE</span><h1>Từng Family đang thành hình.</h1><p id="progress-message">Đang tải file lên…</p><div class="progress-track"><div id="progress-fill"></div></div><div class="progress-caption"><span id="progress-count">Đọc và kiểm tra cấu trúc</span><span id="progress-time">0 giây</span></div><div class="progress-info">Bạn có thể giữ trang này mở. Kết quả được lưu theo từng phiên trên máy.</div></div></section>
+    <!-- Dark Overlay Loading Modal with Progress and ETA -->
+    <div id="view-progress" class="progress-backdrop" hidden role="dialog" aria-modal="true" aria-labelledby="progress-modal-title">
+      <div class="progress-modal">
+        <div class="progress-spinner-wrap">
+          <div class="glow-spinner"></div>
+        </div>
+        <h3 id="progress-modal-title" class="progress-modal-title">Đang tạo các file Family...</h3>
+        <p id="progress-message" class="progress-modal-message">Đang chuẩn bị dữ liệu…</p>
+
+        <div class="progress-track modern">
+          <div id="progress-fill"></div>
+        </div>
+
+        <div class="progress-stats">
+          <div class="progress-stat-left">
+            <span id="progress-percent" class="stat-highlight">0%</span>
+            <span id="progress-count" class="stat-sub">Khởi tạo</span>
+          </div>
+          <div class="progress-stat-right">
+            <span class="stat-label">Thời gian còn lại:</span>
+            <span id="progress-eta" class="stat-highlight">Đang tính toán...</span>
+          </div>
+        </div>
+
+        <div class="progress-footer-note">
+          <span id="progress-time">Đã chạy: 0 giây</span>
+          <span>Tự động chuyển tiếp khi hoàn tất</span>
+        </div>
+      </div>
+    </div>
   </div>
 
   <div id="tab-content-review" class="tab-content" role="tabpanel" aria-labelledby="tab-btn-review" hidden>
