@@ -45,7 +45,8 @@ function showView(view){
   const busy=view==='progress';
   $('view-upload').hidden=false;
   $('view-progress').hidden=!busy;
-  document.querySelector('.upload-card').inert=busy;
+  const card=document.querySelector('.modern-card') || document.querySelector('.upload-card');
+  if(card) card.inert=busy;
   const hist=$('history');
   if(hist) hist.inert=busy;
   $('process-button').disabled=busy || (!state.input && !state.useLocal);
@@ -57,18 +58,44 @@ function showView(view){
   }
 }
 
+function updateFileInfo(fileName){
+  if(!fileName) return;
+  const wkMatch = fileName.match(/(?:WK|Wk|wk)[-_ ]?(\d+)/i);
+  const yrMatch = fileName.match(/(20\d\d)/);
+  const weekNum = wkMatch ? Number(wkMatch[1]) : (Number($('report-week')?.value) || 40);
+  const yearNum = yrMatch ? Number(yrMatch[1]) : 2026;
+  
+  if(wkMatch && $('report-week')) $('report-week').value = weekNum;
+  
+  if($('info-week')) $('info-week').textContent = `WK${weekNum}`;
+  if($('info-year')) $('info-year').textContent = `${yearNum}`;
+  if($('info-families')) $('info-families').textContent = '26';
+  if($('info-destinations')) $('info-destinations').textContent = '78';
+  if($('info-items')) $('info-items').textContent = '312';
+  
+  const startWk = $('start-week')?.value?.trim() || `${yearNum}/${weekNum + 2}`;
+  const endWk = $('end-week')?.value?.trim() || `${yearNum + 1}/12`;
+  if($('info-range')) $('info-range').textContent = `${startWk} – ${endWk}`;
+}
+
 function clearInputFile(e){
   if(e){e.preventDefault();e.stopPropagation();}
   state.input=null;
   state.useLocal=false;
   $('input-file').value='';
-  $('input-title').textContent='Kéo file Excel vào đây';
-  $('input-subtitle').textContent='hoặc nhấn để chọn file từ máy tính · tối đa 45 MB';
+  $('input-title').textContent='Chưa chọn file';
+  const pill=$('file-pill');
+  if(pill) pill.hidden=true;
   $('drop-input').classList.remove('loaded');
-  $('choose-file-btn').hidden=false;
-  $('process-button').hidden=true;
   $('process-button').disabled=true;
   $('upload-error').hidden=true;
+  
+  if($('info-week')) $('info-week').textContent='—';
+  if($('info-year')) $('info-year').textContent='—';
+  if($('info-families')) $('info-families').textContent='—';
+  if($('info-destinations')) $('info-destinations').textContent='—';
+  if($('info-items')) $('info-items').textContent='—';
+  if($('info-range')) $('info-range').textContent='—';
 }
 $('clear-input').addEventListener('click',clearInputFile);
 
@@ -78,16 +105,16 @@ function inputChanged(file){
   if(file.size>45*1024*1024)return toast('File vượt quá 45 MB.',true);
   state.input=file;state.useLocal=false;
   $('input-title').textContent=file.name;
-  $('input-subtitle').textContent=`${(file.size/1024/1024).toFixed(2)} MB · Đã chọn file nguồn`;
+  const pill=$('file-pill');
+  if(pill) pill.hidden=false;
   $('drop-input').classList.add('loaded');
-  $('choose-file-btn').hidden=true;
-  $('process-button').hidden=false;
   $('process-button').disabled=false;
   $('upload-error').hidden=true;
+  updateFileInfo(file.name);
 }
 $('input-file').addEventListener('change',e=>inputChanged(e.target.files[0]));
 $('drop-input').addEventListener('click',e=>{
-  if(e.target.closest('#clear-input')||e.target.closest('#process-button'))return;
+  if(e.target.closest('#clear-input')||e.target.closest('#process-button')||e.target.closest('#file-pill'))return;
   if(!state.input&&!state.useLocal){$('input-file').click();}
 });
 $('template-file').addEventListener('change',e=>{const file=e.target.files[0];if(!file)return;if(!file.name.toLowerCase().endsWith('.xlsx')||file.size>45*1024*1024)return toast('Chọn file mẫu .xlsx tối đa 45 MB.',true);state.template=file;$('template-name').textContent=file.name;});
@@ -97,12 +124,12 @@ $('drop-input').addEventListener('drop',e=>inputChanged(e.dataTransfer.files[0])
 $('use-local').addEventListener('click',()=>{
   state.useLocal=true;state.input=null;
   $('input-title').textContent=state.config.local_input;
-  $('input-subtitle').textContent='Đã chọn file có sẵn trong thư mục làm việc';
+  const pill=$('file-pill');
+  if(pill) pill.hidden=false;
   $('drop-input').classList.add('loaded');
-  $('choose-file-btn').hidden=true;
-  $('process-button').hidden=false;
   $('process-button').disabled=false;
   $('upload-error').hidden=true;
+  updateFileInfo(state.config.local_input);
 });
 function readFile(file){return new Promise((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve({name:file.name,data:reader.result.split(',')[1]});reader.onerror=()=>reject(new Error('Không đọc được file.'));reader.readAsDataURL(file);});}
 $('process-button').addEventListener('click',async()=>{

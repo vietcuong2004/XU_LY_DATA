@@ -26,23 +26,95 @@
   <div id="tab-content-upload" class="tab-content" role="tabpanel" aria-labelledby="tab-btn-upload">
     <details class="recent-sessions"><summary>Mở lại kết quả gần đây</summary><div id="history" class="history"><p class="muted">Chưa có phiên xử lý.</p></div></details>
     <section id="view-upload" class="page upload-page">
-      <div class="upload-layout">
-        <div class="card upload-card">
-          <div class="card-header"><div><h2>Tạo file Excel từ kế hoạch tổng</h2><p>Chọn file nguồn, bấm tạo, rồi xem và chỉnh sửa kết quả tại tab Sửa & xuất kết quả.</p></div><span class="small-tag">.xlsx · SUM</span></div>
-          <div class="dropzone" id="drop-input">
-            <input id="input-file" type="file" accept=".xlsx" hidden>
-            <button type="button" id="clear-input" class="clear-file-btn" title="Xóa file để chọn lại" aria-label="Xóa file">✕</button>
-            <span class="upload-symbol">↥</span>
-            <strong id="input-title">Kéo file Excel vào đây</strong>
-            <span id="input-subtitle">hoặc nhấn để chọn file từ máy tính · tối đa 45 MB</span>
-            <label for="input-file" class="choose-file" id="choose-file-btn">Chọn file nguồn <span>↗</span></label>
-            <button type="button" id="process-button" class="button primary process-btn-inside" hidden>Tách file <span>→</span></button>
+      <div class="modern-card upload-card">
+        <!-- 1. Upload Internal Schedule -->
+        <div class="studio-section">
+          <h2 class="studio-title">1. Upload Internal Schedule</h2>
+          <div class="upload-split-grid">
+            <!-- Left: Dashed upload area -->
+            <div class="dropzone-modern" id="drop-input">
+              <input id="input-file" type="file" accept=".xlsx" hidden>
+              <div class="excel-icon-wrap">
+                <svg width="46" height="46" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  <rect x="6" y="6" width="36" height="36" rx="6" fill="#107C41"/>
+                  <rect x="23" y="11" width="15" height="26" rx="2" fill="#185C37" opacity="0.3"/>
+                  <path d="M26 16H34M26 21H34M26 26H34M26 31H34" stroke="#ffffff" stroke-width="1.8" stroke-linecap="round"/>
+                  <rect x="7" y="11" width="18" height="26" rx="3" fill="#107C41" filter="drop-shadow(0 2px 4px rgba(0,0,0,0.25))"/>
+                  <path d="M12 19L20 29M20 19L12 29" stroke="#ffffff" stroke-width="2.5" stroke-linecap="round"/>
+                </svg>
+              </div>
+              <strong class="dropzone-title">Chọn file Internal Schedule</strong>
+              <span class="dropzone-sub">Chỉ hỗ trợ file Excel (.xlsx)</span>
+              
+              <!-- File pill when selected -->
+              <div class="file-pill" id="file-pill" hidden>
+                <span class="file-pill-check">✔</span>
+                <span class="file-pill-text" id="input-title">Chưa chọn file</span>
+                <button type="button" class="file-pill-clear" id="clear-input" title="Xóa file để chọn lại" aria-label="Xóa file">✕</button>
+              </div>
+            </div>
+
+            <!-- Right: Info card -->
+            <div class="info-card-modern">
+              <h3 class="info-card-heading">Thông tin file</h3>
+              <div class="info-rows">
+                <div class="info-row"><span class="info-label">Tuần</span><span class="info-colon">:</span><strong class="info-val" id="info-week">—</strong></div>
+                <div class="info-row"><span class="info-label">Năm</span><span class="info-colon">:</span><strong class="info-val" id="info-year">—</strong></div>
+                <div class="info-row"><span class="info-label">Số Family phát hiện</span><span class="info-colon">:</span><strong class="info-val" id="info-families">—</strong></div>
+                <div class="info-row"><span class="info-label">Số Destination</span><span class="info-colon">:</span><strong class="info-val" id="info-destinations">—</strong></div>
+                <div class="info-row"><span class="info-label">Số Item</span><span class="info-colon">:</span><strong class="info-val" id="info-items">—</strong></div>
+                <div class="info-row"><span class="info-label">Khoảng tuần</span><span class="info-colon">:</span><strong class="info-val" id="info-range">—</strong></div>
+              </div>
+            </div>
           </div>
-          <button id="use-local" class="local-file" hidden><span>▤</span><span>Dùng file nguồn có sẵn trong thư mục<small id="local-name"></small></span><span>↗</span></button>
-          <div class="template-row"><span class="template-icon">▧</span><div><strong>File mẫu định dạng</strong><p id="template-name">Đang kiểm tra mẫu…</p></div><label class="button secondary compact" for="template-file">Đổi mẫu<input id="template-file" type="file" accept=".xlsx" hidden></label></div>
-          <details class="settings"><summary>Tùy chọn xuất file <span>⌄</span></summary><div class="settings-grid"><label>Mùa kế hoạch<input id="season" value="2728" maxlength="20" placeholder="2728"></label><label>Tuần báo cáo<div class="input-prefix"><span>WK</span><input id="report-week" type="number" min="1" max="53" value="40"></div></label><label>Từ tuần <span class="optional">tùy chọn</span><input id="start-week" placeholder="2026/42" aria-label="Từ tuần"></label><label>Đến tuần <span class="optional">tùy chọn</span><input id="end-week" placeholder="2027/52" aria-label="Đến tuần"></label></div><p class="settings-help">Để trống khoảng tuần để giữ toàn bộ lịch trong nguồn.</p></details>
-          <div id="upload-error" class="error-box" role="alert" hidden></div>
-          <div class="card-footer"><span>✓ File nguồn luôn được giữ nguyên</span></div>
+
+          <button id="use-local" class="local-file" hidden>
+            <span>▤</span>
+            <span>Dùng file nguồn có sẵn: <strong id="local-name"></strong></span>
+            <span>↗</span>
+          </button>
+        </div>
+
+        <!-- 2. Template -->
+        <div class="studio-section">
+          <h2 class="studio-title">2. Template <span class="studio-title-sub">(đã cấu hình sẵn)</span></h2>
+          <div class="template-card-modern">
+            <div class="template-left">
+              <svg width="40" height="40" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <rect x="6" y="6" width="36" height="36" rx="6" fill="#107C41"/>
+                <rect x="23" y="11" width="15" height="26" rx="2" fill="#185C37" opacity="0.3"/>
+                <path d="M26 16H34M26 21H34M26 26H34M26 31H34" stroke="#ffffff" stroke-width="1.8" stroke-linecap="round"/>
+                <rect x="7" y="11" width="18" height="26" rx="3" fill="#107C41" filter="drop-shadow(0 2px 4px rgba(0,0,0,0.25))"/>
+                <path d="M12 19L20 29M20 19L12 29" stroke="#ffffff" stroke-width="2.5" stroke-linecap="round"/>
+              </svg>
+              <div>
+                <strong>Master template: BARBIE 2728 (format)</strong>
+                <p id="template-name">Sử dụng để tạo file output cho từng Family</p>
+              </div>
+            </div>
+            <div class="template-right">
+              <span class="ready-badge">✔ Đã sẵn sàng</span>
+              <label class="btn-change-tpl" for="template-file">Đổi mẫu<input id="template-file" type="file" accept=".xlsx" hidden></label>
+            </div>
+          </div>
+        </div>
+
+        <!-- Settings (Collapsible) -->
+        <details class="settings-modern">
+          <summary>Tùy chọn nâng cao (Mùa, Tuần báo cáo...) <span>⌄</span></summary>
+          <div class="settings-grid">
+            <label>Mùa kế hoạch<input id="season" value="2728" maxlength="20" placeholder="2728"></label>
+            <label>Tuần báo cáo<div class="input-prefix"><span>WK</span><input id="report-week" type="number" min="1" max="53" value="40"></div></label>
+            <label>Từ tuần <span class="optional">tùy chọn</span><input id="start-week" placeholder="2026/42" aria-label="Từ tuần"></label>
+            <label>Đến tuần <span class="optional">tùy chọn</span><input id="end-week" placeholder="2027/52" aria-label="Đến tuần"></label>
+          </div>
+        </details>
+
+        <div id="upload-error" class="error-box" role="alert" hidden></div>
+
+        <!-- Center CTA Button: Tiếp tục -> -->
+        <div class="cta-center">
+          <button id="process-button" class="cta-button" type="button" disabled>Tiếp tục <span>→</span></button>
         </div>
       </div>
     </section>
