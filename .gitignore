@@ -26,6 +26,7 @@ venv/
 .venv/
 env/
 ENV/
+node_modules/
 
 # Microsoft Excel temporary / lock files
 ~$*.xlsx

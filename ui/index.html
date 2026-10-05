@@ -4,79 +4,234 @@
   <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Shipment Studio · Excel workspace</title>
   <link rel="stylesheet" href="/style.css?v=5">
-  <script src="/app.js?v=5" defer></script>
+  <script src="/fflate.js?v=1" defer></script>
+  <script src="/source_optimizer.js?v=1" defer></script>
+  <script src="/app.js?v=6" defer></script>
 </head>
 <body>
 <main>
-  <header class="topbar"><div class="single-brand">shipment <span>STUDIO</span></div><div class="topbar-right"><span class="badge neutral">NIIGATA · SHIPMENT</span><span class="avatar">N</span></div></header>
   <div id="toast" role="status" aria-live="polite"></div>
-  
-  <nav class="main-tabs" role="tablist" aria-label="Các bước làm việc">
-    <div class="tabs-group">
-      <button id="tab-btn-upload" role="tab" class="main-tab active" aria-selected="true" aria-controls="tab-content-upload">
-        <span class="tab-icon">↥</span>
-        <span class="tab-title">Tải file lên</span>
-      </button>
-      <button id="tab-btn-review" role="tab" class="main-tab" aria-selected="false" aria-controls="tab-content-review">
-        <span class="tab-icon">▦</span>
-        <span class="tab-title">Sửa & xuất kết quả</span>
-        <span id="tab-review-badge" class="tab-badge" hidden></span>
-      </button>
-    </div>
-    <div class="tabs-actions">
-      <a id="go-export" class="button primary export-zip-btn" download title="Chưa có file kết quả để xuất" aria-disabled="true">
-        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-          <polyline points="7 10 12 15 17 10"></polyline>
-          <line x1="12" y1="15" x2="12" y2="3"></line>
-        </svg>
-        <span>Xuất kết quả</span>
-      </a>
+
+
+  <!-- 2. Stepper Tab Navigation (1 Tải file lên -> 2 Sửa & xuất kết quả) -->
+  <nav class="stepper-nav" role="tablist" aria-label="Các bước làm việc">
+    <div class="stepper-inner">
+      <div class="stepper-tabs">
+        <button id="tab-btn-upload" role="tab" class="step-tab active" aria-selected="true" aria-controls="tab-content-upload">
+          <span class="step-circle">1</span>
+          <span class="step-label">Tải file lên</span>
+        </button>
+        <button id="tab-btn-review" role="tab" class="step-tab" aria-selected="false" aria-controls="tab-content-review">
+          <span class="step-circle">2</span>
+          <span class="step-label">Sửa & xuất kết quả</span>
+          <span id="tab-review-badge" class="step-badge" hidden>26 Family</span>
+        </button>
+      </div>
+      <div class="stepper-actions">
+        <a id="go-export" class="button-export-main" download title="Chưa có file kết quả để xuất" aria-disabled="true">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+            <polyline points="7 10 12 15 17 10"></polyline>
+            <line x1="12" y1="15" x2="12" y2="3"></line>
+          </svg>
+          <span>Xuất kết quả</span>
+        </a>
+      </div>
     </div>
   </nav>
 
+  <!-- TAB 1: TẢI FILE LÊN (KHỚP 2 MÀN HÌNH THEO MẪU THIẾT KẾ) -->
   <div id="tab-content-upload" class="tab-content" role="tabpanel" aria-labelledby="tab-btn-upload">
-    <details class="recent-sessions"><summary>Mở lại kết quả gần đây</summary><div id="history" class="history"><p class="muted">Chưa có phiên xử lý.</p></div></details>
-    <section id="view-upload" class="page upload-page">
-      <div class="modern-card upload-card">
-        <!-- Upload Internal Schedule -->
-        <div class="studio-section">
-          <h2 class="studio-title">Chọn Internal Schedule</h2>
-          <div class="upload-split-grid">
-            <div class="dropzone-modern" id="drop-input">
-              <input id="input-file" type="file" accept=".xlsx" hidden>
-              <div class="excel-icon-wrap">
-                <svg width="46" height="46" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
-                  <rect x="6" y="6" width="36" height="36" rx="6" fill="#107C41"/>
-                  <rect x="23" y="11" width="15" height="26" rx="2" fill="#185C37" opacity="0.3"/>
-                  <path d="M26 16H34M26 21H34M26 26H34M26 31H34" stroke="#ffffff" stroke-width="1.8" stroke-linecap="round"/>
-                  <rect x="7" y="11" width="18" height="26" rx="3" fill="#107C41" filter="drop-shadow(0 2px 4px rgba(0,0,0,0.25))"/>
-                  <path d="M12 19L20 29M20 19L12 29" stroke="#ffffff" stroke-width="2.5" stroke-linecap="round"/>
-                </svg>
-              </div>
-              <strong class="dropzone-title">Chọn file</strong>
-              <span class="dropzone-sub">Chỉ hỗ trợ file Excel (.xlsx)</span>
-              
-              <!-- File pill when selected -->
-              <div class="file-pill" id="file-pill" hidden>
-                <span class="file-pill-check">✔</span>
-                <span class="file-pill-text" id="input-title">Chưa chọn file</span>
-                <button type="button" class="file-pill-clear" id="clear-input" title="Xóa file để chọn lại" aria-label="Xóa file">✕</button>
+    <section id="view-upload" class="upload-workspace">
+
+      <!-- CỘT TRÁI -->
+      <div class="upload-col-left">
+
+        <!-- Màn 1: Khi chưa tải file -->
+        <div id="card-unloaded" class="studio-card">
+          <div class="card-header-flex">
+            <div class="excel-brand-square">X</div>
+            <div>
+              <h2 class="card-title-lg">Tải file Excel tổng hợp lên</h2>
+              <p class="card-desc-muted">Chọn file Internal Schedule (.xlsx) để tạo các file theo từng Family</p>
+            </div>
+          </div>
+          <div class="dropzone-box" id="drop-input">
+            <input id="input-file" type="file" accept=".xlsx" hidden>
+            <div class="cloud-icon-wrap">
+              <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M4 14.899A7 7 0 1 1 15.71 8h1.79a4.5 4.5 0 0 1 2.5 8.242"></path>
+                <path d="M12 12v9"></path>
+                <path d="m16 16-4-4-4 4"></path>
+              </svg>
+            </div>
+            <strong class="dropzone-title-text">Kéo thả file Excel vào đây</strong>
+            <span class="dropzone-or-text">hoặc</span>
+            <button type="button" class="btn-select-excel-file" id="btn-select-file">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>
+              <span>Chọn file Excel</span>
+            </button>
+            <div class="dropzone-notes">
+              <p>Chỉ hỗ trợ file Excel (.xlsx, .xls)</p>
+              <p>Dung lượng tối đa: 50 MB</p>
+            </div>
+          </div>
+          <div id="upload-error" class="error-box" role="alert" hidden></div>
+        </div>
+
+        <!-- Màn 2: Khi file đã tải lên thành công -->
+        <div id="card-loaded" class="studio-card" hidden>
+          <div class="card-header-flex space-between">
+            <div class="card-title-group">
+              <div class="success-round-check">✓</div>
+              <div>
+                <h2 class="card-title-lg">File đã được tải lên thành công</h2>
+                <p class="card-desc-muted">Hệ thống đã đọc và phân tích dữ liệu từ file Excel</p>
               </div>
             </div>
-
+            <span class="pill-success-tag">✓ Đọc file thành công</span>
           </div>
-          <p class="automatic-note">Tool tự dùng template BARBIE mặc định và giữ toàn bộ các tuần có trong file nguồn.</p>
+
+          <!-- Khối hiển thị file -->
+          <div class="file-summary-card">
+            <div class="file-summary-left">
+              <div class="excel-brand-square small">X</div>
+              <div class="file-summary-meta">
+                <strong id="loaded-file-name">2026 INTERNAL SCHEDULE FERRERO-WK40.xlsx</strong>
+                <small id="loaded-file-sub">12.4 MB | 10/10/2025 14:32</small>
+              </div>
+            </div>
+            <button type="button" id="btn-replace-source" class="btn-replace-source-file" title="Chọn file Excel khác để thay thế">
+              ✕ Thay file
+            </button>
+          </div>
+
+          <!-- Khối chi tiết thông tin file -->
+          <div class="file-details-panel">
+            <div class="file-details-heading">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
+              <span>Thông tin file</span>
+            </div>
+            <div class="file-details-grid">
+              <div class="details-grid-col">
+                <div class="details-row">
+                  <span class="row-label">Tuần báo cáo</span>
+                  <span class="row-sep">:</span>
+                  <strong class="row-val" id="info-val-week">WK40</strong>
+                </div>
+                <div class="details-row">
+                  <span class="row-label">Năm</span>
+                  <span class="row-sep">:</span>
+                  <strong class="row-val" id="info-val-year">2026</strong>
+                </div>
+                <div class="details-row">
+                  <span class="row-label">Số Family phát hiện</span>
+                  <span class="row-sep">:</span>
+                  <strong class="row-val" id="info-val-families">26</strong>
+                </div>
+              </div>
+              <div class="details-grid-col">
+                <div class="details-row">
+                  <span class="row-label"><span class="icon-label">📅</span> Khoảng tuần</span>
+                  <span class="row-sep">:</span>
+                  <strong class="row-val" id="info-val-range">2026/42 – 2027/12</strong>
+                </div>
+                <div class="details-row">
+                  <span class="row-label"><span class="icon-label">🕒</span> Ngày đọc file</span>
+                  <span class="row-sep">:</span>
+                  <strong class="row-val" id="info-val-date">10/10/2025 14:32</strong>
+                </div>
+                <div class="details-row">
+                  <span class="row-label"><span class="icon-label">▦</span> Sheet nguồn</span>
+                  <span class="row-sep">:</span>
+                  <strong class="row-val" id="info-val-sheet">SUM</strong>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="card-footer-cta">
+            <button type="button" id="btn-goto-family-view" class="btn-cta-next-step">
+              <span>Xem & chỉnh sửa các Family</span>
+              <span>→</span>
+            </button>
+          </div>
         </div>
 
-        <div id="upload-error" class="error-box" role="alert" hidden></div>
-
-        <!-- Center CTA Button: Tiếp tục -> -->
-        <div class="cta-center">
-          <button id="process-button" class="cta-button" type="button" disabled>Tạo các file Family <span>→</span></button>
-        </div>
       </div>
+
+      <!-- CỘT PHẢI -->
+      <div class="upload-col-right">
+
+        <!-- Card Hướng dẫn (khi chưa có file) -->
+        <div id="card-guide" class="side-card">
+          <div class="side-card-header">
+            <div class="side-title-wrap">
+              <span class="book-icon">📖</span>
+              <h3>Hướng dẫn</h3>
+            </div>
+            <span class="chevron-up-icon">^</span>
+          </div>
+          <div class="guide-timeline">
+            <div class="timeline-step">
+              <span class="step-num-circle">1</span>
+              <div>
+                <strong>Tải file Internal Schedule (.xlsx)</strong>
+                <p>File chứa đầy đủ dữ liệu tất cả các Family</p>
+              </div>
+            </div>
+            <div class="timeline-step">
+              <span class="step-num-circle">2</span>
+              <div>
+                <strong>Hệ thống tự động đọc dữ liệu</strong>
+                <p>Tự động phát hiện Family và phân tích dữ liệu...</p>
+              </div>
+            </div>
+            <div class="timeline-step">
+              <span class="step-num-circle">3</span>
+              <div>
+                <strong>Chuyển sang bước tiếp theo</strong>
+                <p>Xem, chỉnh sửa và xuất kết quả</p>
+              </div>
+            </div>
+          </div>
+          <div class="guide-alert-box">
+            <div class="alert-title">
+              <span class="info-icon">ⓘ</span>
+              <strong>Lưu ý</strong>
+            </div>
+            <ul class="alert-bullets">
+              <li>Chỉ hỗ trợ file Excel định dạng .xlsx, .xls</li>
+              <li>Dung lượng tối đa 50 MB</li>
+              <li>File cần có đầy đủ dữ liệu theo định dạng mẫu</li>
+            </ul>
+          </div>
+        </div>
+
+        <!-- Card Lịch sử file gần đây (khi đã có file hoặc có lịch sử) -->
+        <div id="card-recent" class="side-card" hidden>
+          <div class="side-card-header">
+            <div class="side-title-wrap">
+              <span class="clock-icon">🕒</span>
+              <h3>Danh sách file đã tải lên gần đây</h3>
+            </div>
+            <button type="button" id="btn-clear-all-history" class="btn-clear-history-action" title="Xóa tất cả các phiên trong lịch sử">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+              <span>Xóa tất cả</span>
+            </button>
+          </div>
+          <div id="history" class="recent-files-scroll-list">
+            <p class="muted">Chưa có phiên xử lý.</p>
+          </div>
+        </div>
+
+      </div>
+
     </section>
+
+    <!-- Hidden Process CTA Button for programmatic trigger if needed -->
+    <button id="process-button" type="button" hidden disabled></button>
+
     <!-- Dark Overlay Loading Modal with Progress and ETA -->
     <div id="view-progress" class="progress-backdrop" hidden role="dialog" aria-modal="true" aria-labelledby="progress-modal-title">
       <div class="progress-modal">
@@ -122,8 +277,40 @@
     </section>
     <section id="view-review" class="page review-page" hidden>
       <div class="review-workspace">
-        <aside class="family-panel"><div class="family-panel-heading"><h2>Danh sách file</h2><span id="family-count" class="small-tag"></span></div><label class="search-box"><span>⌕</span><input id="family-search" placeholder="Tìm Family…" aria-label="Tìm Family"></label><div class="filter-row"><button class="chip active" data-filter="all">Tất cả</button><button class="chip" data-filter="warning">Cần xem</button><button class="chip" data-filter="edited">Đã sửa</button></div><div id="family-list" class="family-list"></div></aside>
-        <div class="workbook-panel"><div class="workbook-heading"><div class="excel-tile">X</div><div class="workbook-title"><h2 id="workbook-name"></h2><p id="workbook-meta"></p></div><div class="workbook-actions"><button type="button" id="btn-preview-excel" class="button secondary compact" title="Xem trước file Excel khi tải xuống (màu sắc chữ, kích cỡ ô, màu ô...)"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg><span>Xem trước</span></button><a id="download-one" class="button primary compact" download title="Tải file Excel này" aria-label="Tải file này"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg><span>Tải file này</span></a></div></div><div id="sheet-tabs" class="sheet-tabs" role="tablist" aria-label="Sheets"></div><div class="sheet-toolbar"><div><span class="legend green"></span>Khớp nguồn <span class="legend blue"></span>Đã thay đổi <span class="legend red"></span>Lỗi dữ liệu</div><button id="jump-warning" class="text-button">Xem điểm cần kiểm tra ↓</button></div><div id="grid-container" class="grid-container" tabindex="0" aria-label="Bảng dữ liệu Excel"><div class="empty-state">Chọn một Family để xem dữ liệu.</div></div><div class="grid-footer"><span id="grid-info"></span><span>Nhấn vào ô để xem hoặc sửa <span class="keycap">↵</span></span></div></div>
+        <aside class="family-panel">
+          <div class="family-panel-heading">
+            <div class="family-panel-title-wrap">
+              <h2>Danh sách file</h2>
+              <span id="family-count" class="small-tag"></span>
+            </div>
+            <button id="btn-download-all-files" class="btn-download-all-files" type="button" title="Tải tất cả các file (.zip)">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+              <span>Tải tất cả các file</span>
+            </button>
+          </div>
+          <label class="search-box">
+            <span>⌕</span>
+            <input id="family-search" placeholder="Tìm file hoặc Family…" aria-label="Tìm Family">
+          </label>
+          <div class="file-status-legend" title="Chú thích màu sắc trạng thái file">
+            <span class="legend-item"><span class="status-dot dot-unviewed"></span>Chưa xem</span>
+            <span class="legend-item"><span class="status-dot dot-viewed"></span>Đã xem</span>
+            <span class="legend-item"><span class="status-dot dot-edited"></span>Đã sửa</span>
+            <span class="legend-item"><span class="status-dot dot-downloaded"></span>Đã tải</span>
+          </div>
+          <div class="filter-row">
+            <button class="chip active" data-filter="all">Tất cả</button>
+            <button class="chip" data-filter="unviewed">Chưa xem</button>
+            <button class="chip" data-filter="viewed">Đã xem</button>
+            <button class="chip" data-filter="edited">Đã sửa</button>
+            <button class="chip" data-filter="downloaded">Đã tải</button>
+          </div>
+          <div id="family-list" class="family-list"></div>
+        </aside>
+        <div id="workspace-resizer" class="workspace-resizer" title="Kéo để thay đổi độ rộng cột Danh sách file" role="separator" aria-orientation="vertical">
+          <div class="resizer-handle-line"></div>
+        </div>
+        <div class="workbook-panel"><div class="workbook-heading"><div class="excel-tile">X</div><div class="workbook-title"><h2 id="workbook-name"></h2><p id="workbook-meta"></p></div><div class="workbook-actions"><button type="button" id="fullscreen-editor" class="button secondary compact" aria-pressed="false" title="Mở rộng bảng để chỉnh sửa">⛶ Toàn màn hình</button><button type="button" id="edit-workbook" class="button secondary compact" aria-pressed="false">✎ Chỉnh sửa</button><button type="button" id="save-workbook" class="button primary compact" hidden>Lưu</button><button type="button" id="cancel-workbook" class="button secondary compact" hidden>Hủy</button><button type="button" id="btn-preview-excel" class="button secondary compact" title="Xem trước file Excel khi tải xuống (màu sắc chữ, kích cỡ ô, màu ô...)"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg><span>Xem trước</span></button><a id="download-one" class="button primary compact" download title="Tải file Excel này" aria-label="Tải file này"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg><span>Tải file này</span></a></div></div><div id="sheet-tabs" class="sheet-tabs" role="tablist" aria-label="Sheets"></div><div class="sheet-toolbar"><div><span class="legend gray"></span>Khớp nguồn <span class="legend blue"></span>Đã thay đổi <span class="legend red"></span>Lỗi dữ liệu</div><button id="jump-warning" class="text-button">Xem điểm cần kiểm tra ↓</button></div><div id="inline-edit-status" class="inline-edit-status" role="status">Bấm Chỉnh sửa để nhập trực tiếp trên bảng.</div><div id="grid-container" class="grid-container" tabindex="0" aria-label="Bảng dữ liệu Excel"><div class="empty-state">Chọn một Family để xem dữ liệu.</div></div><div class="grid-footer"><span id="grid-info"></span><span>Sửa nhiều ô rồi bấm Lưu <span class="keycap">↵</span></span></div></div>
       </div>
       <div class="bottom-panels"><section class="card check-panel"><div class="card-header"><div><h2>Những điểm cần kiểm tra</h2><p>Lỗi nguồn và tuần chưa hợp lệ trong Family đang chọn.</p></div><span id="problem-count" class="small-tag"></span></div><div id="problems" class="problem-list"></div></section><section class="card audit-panel"><div class="card-header"><div><h2>Lịch sử chỉnh sửa</h2><p>Giữ lại giá trị trước và sau mỗi lần lưu.</p></div><span class="audit-icon">↺</span></div><div id="audit-list" class="audit-list"></div></section></div>
     </section>
@@ -144,6 +331,14 @@
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
           <span>Tải file này</span>
         </a>
+        <button type="button" class="icon-button" id="btn-fullscreen-preview" title="Toàn màn hình" aria-label="Toàn màn hình">
+          <svg id="fullscreen-icon-expand" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"></path>
+          </svg>
+          <svg id="fullscreen-icon-compress" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" hidden>
+            <path d="M8 3v3a2 2 0 0 1-2 2H3m18 0h-3a2 2 0 0 1-2-2V3m0 18v-3a2 2 0 0 1 2-2h3M3 16h3a2 2 0 0 1 2 2v3"></path>
+          </svg>
+        </button>
         <button type="button" class="icon-button" id="close-excel-preview" aria-label="Đóng">✕</button>
       </div>
     </div>
@@ -174,6 +369,5 @@
     </div>
   </div>
 </dialog>
-<dialog id="cell-dialog" class="cell-dialog"><form id="edit-form"><div class="dialog-header"><div><span class="eyebrow">ĐỐI CHIẾU & CHỈNH SỬA</span><h2 id="cell-heading">Ô dữ liệu</h2></div><button type="button" class="icon-button" id="close-dialog" aria-label="Đóng">×</button></div><div id="cell-context" class="cell-context"></div><div class="comparison"><div><span>NGUỒN BAN ĐẦU</span><strong id="original-value"></strong></div><span>→</span><div><span>HIỆN TẠI</span><strong id="current-value"></strong></div></div><p class="comparison-help">Giá trị ban đầu của file được tạo từ nguồn, trước các chỉnh sửa trong giao diện.</p><div id="formula-info" class="formula-info" hidden></div><div id="edit-fields"><label id="new-value-label" for="new-value">Giá trị mới</label><input id="new-value" autocomplete="off"><p id="edit-hint" class="muted"></p><label for="edit-reason">Ghi chú chỉnh sửa <span class="optional">tùy chọn</span></label><textarea id="edit-reason" rows="2" placeholder="Ví dụ: cập nhật theo xác nhận mới…" maxlength="500"></textarea></div><p id="readonly-info" class="notice" hidden></p><div id="edit-error" class="error-box" role="alert" hidden></div><div class="dialog-actions"><button type="button" id="restore-cell" class="text-button">↺ Khôi phục giá trị gốc</button><button type="button" id="trace-cell" class="button secondary" hidden>Đến dữ liệu gốc</button><button type="submit" id="save-cell" class="button primary">Lưu & tính lại <span>✓</span></button></div></form></dialog>
 </body>
 </html>

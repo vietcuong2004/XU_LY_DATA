@@ -1,5 +1,9 @@
 # Triển khai Shipment Studio
 
+## Sửa mọi sheet với Microsoft Excel
+
+Xem [EXCEL_WORKER_SETUP.md](EXCEL_WORKER_SETUP.md). Vercel gọi máy Windows qua HTTPS với khóa riêng; Excel tính lại workbook rồi tool tạo lại mọi Family. Hiện chưa có endpoint HTTPS triển khai. Các điều kiện lưu trữ bền vững và giới hạn payload bên dưới vẫn cần xử lý để vận hành ổn định trên Vercel.
+
 ## Lỗi Vercel không tìm thấy Python entrypoint
 
 Repository có `ui_server.py` với lớp `Handler`, nhưng tên file này không nằm trong danh sách entrypoint mặc định của Vercel. `pyproject.toml` ở thư mục gốc khai báo rõ:
@@ -29,9 +33,12 @@ Tài liệu chính thức: [Python entrypoints](https://vercel.com/docs/function
 
 ## Tối ưu hiệu năng đã thực hiện
 
+- Đã tắt tối ưu cắt workbook chỉ còn SUM. Tính năng sửa mọi sheet cần giữ đầy đủ công thức và dữ liệu nguồn. Upload hiện gửi nguyên workbook; dung lượng lớn cần object storage thay vì bỏ sheet.
 - Trình duyệt gửi nguyên bytes Excel bằng FormData, không đọc và chuyển cả file sang base64. Thanh tiến độ hiển thị phần trăm upload thực tế; tiến độ xử lý Family vẫn tách riêng.
 - JSON và nội dung text lớn được nén gzip khi trình duyệt hỗ trợ. File Excel/ZIP tải xuống giữ nguyên bytes.
 - Khi tạo phiên, mở mỗi workbook kết quả một lần cho cả đối chiếu SUM và phân tích lỗi. Bản baseline vừa sao chép có cùng bytes nên dùng chung workbook đã đọc. Khi sửa dữ liệu, vẫn đọc baseline riêng để so sánh đúng.
 - Không sửa thuật toán tạo Excel, công thức, định dạng hay bỏ phép kiểm tra nguồn.
 
 Đo cục bộ trên 26 Family: bước đối chiếu/phân tích sau xuất từ 4,143 giây xuống 1,614 giây; JSON báo cáo mẫu từ 3.097.217 bytes xuống 174.966 bytes khi gzip. Đây không phải số đo end-to-end trên Vercel; tốc độ còn phụ thuộc đường truyền, cold start và tài nguyên function.
+
+Nếu riêng sheet `SUM` sau khi đóng gói vẫn vượt giới hạn request 4,5 MB của Vercel, bước tiếp theo bắt buộc là client upload trực tiếp lên Vercel Blob hoặc object storage tương đương. Chia chunk rồi lưu vào `/tmp` của nhiều Function không an toàn vì các request không được bảo đảm chạy trên cùng instance.

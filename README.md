@@ -22,7 +22,7 @@ Giao diện được phân chia thành **2 Tab nghiệp vụ trực quan**:
 
 #### Tab 1: "Tải file lên" (↥)
 1. **Chọn file nguồn (.xlsx):** Kéo thả hoặc bấm vào khung tải lên để chọn file Master (ví dụ: `2026 INTERNAL SCHEDULE FERRERO-WK40(LOG)-T.xlsx`). Nếu file đã nằm sẵn trong thư mục làm việc, có thể bấm nút *"Dùng file nguồn có sẵn"*.
-2. **Bấm "Tạo các file Family →":** Hệ thống tự dùng template BARBIE mặc định, giữ toàn bộ khoảng tuần trong nguồn và bóc tách tất cả các Family. Tuần đặt tên file được nhận từ `WKxx` trong tên file nguồn; nếu không tìm thấy thì dùng `WK40`. Mùa đặt tên file được nhận từ template, mặc định `2728`. Hai giá trị này chỉ dùng trong tên file kết quả.
+2. **Bấm "Tạo các file Family →":** Trình duyệt tải đủ workbook để giữ mọi sheet và công thức liên kết. Hệ thống tự dùng template BARBIE mặc định, giữ toàn bộ khoảng tuần trong nguồn và bóc tách tất cả Family. Tuần đặt tên file được nhận từ `WKxx` trong tên file nguồn; nếu không tìm thấy thì dùng `WK40`. Mùa đặt tên file được nhận từ template, mặc định `2728`. Hai giá trị này chỉ dùng trong tên file kết quả.
 3. Quá trình hoàn tất sẽ **tự động chuyển ngay sang Tab 2**. Các số Family, item, thị trường và tuần hiển thị tại đây đều là kết quả đọc thật sau khi xử lý, không phải số minh họa.
 4. **Mở lại kết quả gần đây:** Cho phép mở lại tức thì các phiên làm việc trước đó mà không cần tạo lại từ đầu.
 
@@ -30,16 +30,19 @@ Giao diện được phân chia thành **2 Tab nghiệp vụ trực quan**:
 1. **Xem tổng quan (Metrics):** Thống kê số lượng file Family đã tạo (kèm huy hiệu trên Tab), số tuần kế hoạch, số Family cần kiểm tra cảnh báo và số Family đã chỉnh sửa.
 2. **Danh sách Family & Bộ lọc:**
    - Cột bên trái hiển thị danh sách toàn bộ các Family tìm thấy (ví dụ 26 Family).
+   - File nguồn nằm đầu danh sách. Khi đã kết nối máy xử lý Microsoft Excel, có thể sửa nội dung ô và công thức ở mọi sheet. Excel tính lại toàn workbook, rồi tool tạo lại và đối chiếu toàn bộ Family. Xem [cấu hình Windows worker cho Vercel](EXCEL_WORKER_SETUP.md).
+   - **Tải file nguồn** trả workbook hiện tại đã tính lại; ZIP tải toàn bộ Family. Mỗi lần lưu nguồn tạo một phiên mới; phiên trước được giữ trong lịch sử. Các chỉnh sửa riêng trên Family cũ không áp dụng sang bộ mới tạo từ nguồn. Nếu chưa có engine, giao diện báo rõ và khóa sửa nguồn.
+   - Nút **"Toàn màn hình"** mở rộng bảng; nút **"Chỉnh sửa"** bên cạnh bật sửa trực tiếp. Bấm **"Thu nhỏ"** hoặc `Esc` để trở lại.
    - Hỗ trợ ô tìm kiếm nhanh và các bộ lọc: *Tất cả*, *Cần xem*, *Đã sửa*.
 3. **Bảng lưới tính Excel (Interactive Grid Viewer):**
    - Chuyển đổi linh hoạt giữa 3 sheet: `Breakdown `, `[Tên Family]`, `Release Qty`.
    - Hiển thị màu sắc trạng thái: Xanh lá (Khớp nguồn), Xanh lam (Đã sửa), Đỏ (Lỗi dữ liệu).
-4. **Đối chiếu & Chỉnh sửa ô trực tiếp (Cell Editor Modal):**
-   - Nhấp chuột (hoặc nhấn `Enter`) vào ô bất kỳ để mở cửa sổ đối chiếu.
-   - Hiển thị song song: **Giá trị nguồn ban đầu ➡️ Giá trị hiện tại**.
-   - Hỗ trợ sửa số lượng, đổi tuần, ghi chú lý do sửa.
-   - Tự động tính toán lại các ô công thức phụ thuộc (Total, CUM, Release Qty...).
-   - Có nút *"Khôi phục giá trị gốc"* nếu muốn hoàn tác.
+4. **Chỉnh sửa trực tiếp trên bảng:**
+   - Bấm **Chỉnh sửa**, nhấp ô để nhập. Có thể sửa nhiều ô, chuyển sheet trong cùng file hoặc dán một vùng từ Excel. Enter/Tab chuyển ô.
+   - Các ô chưa lưu có màu vàng. Mọi thay đổi chỉ nằm trong bản nháp cho tới khi bấm **Lưu**; **Hủy** bỏ toàn bộ bản nháp của file đang sửa.
+   - Một lần Lưu gửi toàn bộ thay đổi, tính lại và tạo phiên mới. File và phiên trước được giữ nguyên. Nếu có lỗi, giữ bản nháp để sửa và thử lại.
+   - Sửa nguồn: công thức bắt đầu bằng `=`, thêm dấu nháy đơn trước nội dung để giữ văn bản như `'00123`, dùng dấu chấm cho số thập phân. Sửa mọi sheet nguồn cần Windows worker như đã cấu hình.
+   - Lưu hoặc Hủy trước khi đổi file, tải xuống hay mở phiên khác. Tối đa 1000 ô mỗi lần lưu. Bản nháp chưa lưu không được lưu bền vững khi đóng trang.
 5. **Kiểm tra lỗi & Nhật ký (Audit Trail):**
    - Bảng *"Những điểm cần kiểm tra"*: Liệt kê các ô lỗi nguồn (`#REF!`, tuần không hợp lệ theo chuẩn ISO) để bấm nhảy trực tiếp tới ô cần xử lý.
    - Bảng *"Lịch sử chỉnh sửa"*: Lưu vết chi tiết ai đã sửa ô nào, từ giá trị nào sang giá trị nào và vào thời gian nào.

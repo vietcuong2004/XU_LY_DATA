@@ -164,6 +164,140 @@ class ReviewTests(unittest.TestCase):
         self.edit('H19','2026-10-05',sheet=1,revision=1)
         self.assertEqual(self.values()['TEST']['H19'].value.date(),date(2026,10,5))
 
+    def test_batch_saves_once_to_new_session_and_keeps_original(self):
+        old = (self.folder/'files/test.xlsx').read_bytes()
+        with patch.object(ui, 'recalculate', wraps=ui.recalculate) as calc:
+            result = ui.apply_batch(self.job, 0, dict(revision=0, edits=[
+                dict(sheet=0, cell='B14', value=12), dict(sheet=0, cell='C14', value=8),
+                dict(sheet=1, cell='G19', value='Updated')]))
+        self.assertEqual(calc.call_count, 1)
+        self.assertEqual((self.folder/'files/test.xlsx').read_bytes(), old)
+        book = openpyxl.load_workbook(ui.directory(result['new_job_id'])/'files/test.xlsx', data_only=True)
+        self.assertEqual(book['TEST']['B19'].value, 20)
+        self.assertEqual(book['TEST']['G19'].value, 'Updated')
+        book.close()
+
+    def test_invalid_batch_does_not_publish_partial_edits(self):
+        old = (self.folder/'files/test.xlsx').read_bytes()
+        with self.assertRaises(ValueError):
+            ui.apply_batch(self.job, 0, dict(revision=0, edits=[
+                dict(sheet=0, cell='B14', value=12), dict(sheet=0, cell='C14', value='NaN')]))
+        self.assertEqual((self.folder/'files/test.xlsx').read_bytes(), old)
+        self.assertEqual(ui.get_report(self.job)['families'][0]['revision'], 0)
+        other = next(p for p in ui.STORE.iterdir() if p.name != self.job)
+        self.assertEqual(ui.read_job(other.name)['status'], 'error')
+
+    def test_batch_week_swap_validates_final_state(self):
+        self.edit('A15', '2027/01')
+        result = ui.apply_batch(self.job, 0, dict(revision=1, edits=[
+            dict(sheet=0, cell='A14', value='2027/01'),
+            dict(sheet=0, cell='A15', value='2026/53')]))
+        book = openpyxl.load_workbook(ui.directory(result['new_job_id'])/'files/test.xlsx', data_only=True)
+        self.assertEqual(book['Breakdown ']['A14'].value, '2027/01')
+        self.assertEqual(book['Breakdown ']['A15'].value, '2026/53')
+        book.close()
+
+    @patch.object(ui.excel_engine, 'capability', return_value={'available': False, 'message': 'Chưa kết nối Excel'})
+    def test_source_is_read_only_without_worker(self, capability):
+        source = openpyxl.Workbook()
+        source.active.title = 'SUM'
+        source['SUM']['A1'] = 10
+        source.save(self.folder/'input.xlsx')
+        shutil.copy2(self.folder/'input.xlsx', self.folder/'baseline'/'input.xlsx')
+        report = ui.get_report(self.job)
+        report['source_file'] = {
+            'id': -1, 'file': 'input.xlsx', 'name': 'File nguồn: input.xlsx',
+            'original_name': 'input.xlsx', 'revision': 0, 'edits': [],
+            'is_source': True, 'changed_cells': 0, 'problems': []
+        }
+        ui.write_json(self.folder/'review.json', report)
+
+        preview = ui.preview(self.job, -1, 0)
+        self.assertIsNone(preview['rows'][0][0]['editable'])
+        with self.assertRaisesRegex(ValueError, 'Chưa kết nối Excel'):
+            ui.apply_edit(self.job, -1, {'sheet': 0, 'cell': 'A1', 'revision': 0, 'value': 20})
+        unchanged = openpyxl.load_workbook(self.folder/'input.xlsx', data_only=True)
+        self.assertEqual(unchanged['SUM']['A1'].value, 10)
+        unchanged.close()
+
+    def source_fixture(self):
+        # Retain regression coverage for the old SUM override format, which full
+        # workbook edits migrate before asking Excel to recalculate.
+        route = patch.object(ui.source_edit, 'apply', side_effect=lambda server, job, report, entry, payload:
+                             ui.apply_source_edit(job, report, entry, payload))
+        route.start()
+        self.addCleanup(route.stop)
+        capability = patch.object(ui.excel_engine, 'capability', return_value={'available': True})
+        capability.start()
+        self.addCleanup(capability.stop)
+        source = openpyxl.Workbook()
+        source.active.title = 'SUM'
+        source['SUM']['W16'] = '=SUM(1,1)'
+        source._formula_cache = {('SUM', 'W16'): 2}
+        process.save_with_cache(source, self.folder/'input.xlsx')
+        source.close()
+        shutil.copy2(self.folder/'input.xlsx', self.folder/'baseline'/'input.xlsx')
+        report = ui.get_report(self.job)
+        report['families'][0]['review_notes'] = {'Breakdown ': {'B14': 'Nguồn: input.xlsx\nSUM!W16\nQuantity'}}
+        report['source_file'] = {'id': -1, 'file': 'input.xlsx', 'name': 'Source',
+                                 'is_source': True, 'revision': 0, 'edits': [], 'problems': []}
+        ui.write_json(self.folder/'review.json', report)
+
+    def test_source_override_updates_consumers_preserves_cache_and_unrelated_edits(self):
+        self.source_fixture()
+        original = (self.folder/'input.xlsx').read_bytes()
+        self.edit('C14', '8')
+        preview = ui.preview(self.job, -1, 0)
+        self.assertEqual(preview['rows'][15][22]['editable'], 'source_cell')
+        result = ui.apply_edit(self.job, -1, dict(sheet=0, cell='W16', revision=0, value='12.5'))
+        self.assertEqual(result['updated_families'], [0])
+        wb = self.values()
+        self.assertEqual(wb['Breakdown ']['B14'].value, 12.5)
+        self.assertEqual(wb['Breakdown ']['C14'].value, 8)
+        self.assertEqual(wb['TEST']['B19'].value, 20.5)
+        self.assertEqual(wb['TEST']['D19'].value, 20.5)
+        self.assertEqual((self.folder/'input.xlsx').read_bytes(), original)
+        preview = ui.preview(self.job, -1, 0)
+        self.assertEqual(preview['rows'][15][22]['value'], 12.5)
+        self.assertEqual(preview['rows'][15][22]['original'], 2)
+        with self.assertRaises(ValueError):
+            ui.apply_edit(self.job, -1, dict(sheet=0, cell='W16', revision=0, value='9'))
+        result = ui.apply_edit(self.job, -1, dict(sheet=0, cell='W16', revision=1, restore=True))
+        self.assertEqual(result['changed_cells'], 0)
+        self.assertEqual(self.values()['TEST']['B19'].value, 10)
+
+    def test_source_edit_failure_keeps_outputs_and_report_unchanged(self):
+        self.source_fixture()
+        before = (self.folder/'files'/'test.xlsx').read_bytes()
+        report = (self.folder/'review.json').read_bytes()
+        with patch.object(ui, 'write_json', side_effect=OSError('disk full')):
+            with self.assertRaises(OSError):
+                ui.apply_edit(self.job, -1, dict(sheet=0, cell='W16', revision=0, value='9'))
+        self.assertEqual((self.folder/'files'/'test.xlsx').read_bytes(), before)
+        self.assertEqual((self.folder/'review.json').read_bytes(), report)
+        for value in ('NaN', 'Infinity', '=SUM(1,1)'):
+            with self.assertRaises(ValueError):
+                ui.apply_edit(self.job, -1, dict(sheet=0, cell='W16', revision=0, value=value))
+
+    def test_source_edit_updates_every_consumer_and_invalidates_old_family_revision(self):
+        self.source_fixture()
+        report = ui.get_report(self.job)
+        second = json.loads(json.dumps(report['families'][0]))
+        second.update(id=1, file='second.xlsx')
+        report['families'].append(second)
+        for subfolder in ('files', 'baseline'):
+            shutil.copy2(self.folder/subfolder/'test.xlsx', self.folder/subfolder/'second.xlsx')
+        ui.write_json(self.folder/'review.json', report)
+        result = ui.apply_edit(self.job, -1, dict(sheet=0, cell='W16', revision=0, value=21))
+        self.assertEqual(result['updated_families'], [0, 1])
+        for family in ui.get_report(self.job)['families']:
+            self.assertEqual(family['revision'], 1)
+            book = openpyxl.load_workbook(self.folder/'files'/family['file'], data_only=True)
+            self.assertEqual(book['TEST']['B19'].value, 24)
+            book.close()
+            with self.assertRaises(ValueError):
+                ui.apply_edit(self.job, family['id'], dict(sheet=0, cell='B14', revision=0, value=1))
+
 
 if __name__=='__main__':
     unittest.main()

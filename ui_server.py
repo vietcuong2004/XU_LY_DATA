@@ -23,7 +23,7 @@ import re
 import shutil
 import threading
 from types import SimpleNamespace
-from urllib.parse import urlparse, parse_qs, quote
+from urllib.parse import urlparse, parse_qs, quote, unquote
 from urllib.request import urlopen
 import uuid
 import webbrowser
@@ -35,6 +35,9 @@ from openpyxl.styles import PatternFill
 from openpyxl.utils import get_column_letter, coordinate_to_tuple
 
 import process
+import excel_engine
+import source_edit
+import sys
 
 ROOT = Path(__file__).resolve().parent
 STORE = Path('/tmp/.ui_jobs') if (os.environ.get('VERCEL') or not os.access(ROOT, os.W_OK)) else ROOT / '.ui_jobs'
@@ -92,7 +95,7 @@ def local_input():
                  and 'INTERNAL SCHEDULE' in p.name.upper()), None)
 
 
-def save_upload(upload, path):
+def save_upload(upload, path, fallback_name=None):
     if not isinstance(upload, dict) or not str(upload.get('name', '')).lower().endswith('.xlsx'):
         raise ValueError('Vui lòng chọn file .xlsx.')
     try:
@@ -110,7 +113,13 @@ def save_upload(upload, path):
     except BadZipFile as exc:
         raise ValueError('File Excel bị hỏng hoặc chưa đúng định dạng .xlsx.') from exc
     path.write_bytes(raw)
-    return Path(upload['name'].replace('\\', '/')).name
+    orig = upload.get('name')
+    if (not orig or str(orig).lower() == 'input.xlsx') and fallback_name:
+        orig = fallback_name
+    fn = Path(str(orig or '2026 INTERNAL SCHEDULE FERRERO-WK40.xlsx').replace('\\', '/')).name
+    if fn.lower() == 'input.xlsx' and fallback_name:
+        fn = Path(fallback_name.replace('\\', '/')).name
+    return fn
 
 
 def parse_payload(content_type, raw):
@@ -132,9 +141,15 @@ def parse_payload(content_type, raw):
         if name == 'options':
             payload[name] = json.loads(data)
         else:
-            payload[name] = {'name': part.get_filename(), 'raw': data}
+            fn = part.get_filename()
+            if not fn:
+                cd = str(part.get('content-disposition', ''))
+                m = re.search(r'filename\*?=(?:UTF-8\'\')?["\']?([^";\r\n]+)["\']?', cd, re.IGNORECASE)
+                if m:
+                    fn = unquote(m.group(1).strip('\'"'))
+            payload[name] = {'name': fn or 'input.xlsx', 'raw': data}
     options = payload.pop('options', {})
-    if not isinstance(options, dict) or set(options) - {'week', 'season', 'start', 'end', 'use_local'}:
+    if not isinstance(options, dict) or set(options) - {'week', 'season', 'start', 'end', 'use_local', 'original_filename'}:
         raise ValueError('Tùy chọn tải lên không hợp lệ.')
     return {**options, **payload}
 
@@ -160,7 +175,8 @@ def create_job(payload):
         shutil.copy2(found, source)
         source_name = found.name
     else:
-        source_name = save_upload(payload.get('input'), source)
+        orig_hint = payload.get('original_filename')
+        source_name = save_upload(payload.get('input'), source, fallback_name=orig_hint)
     if payload.get('template'):
         template_name = save_upload(payload['template'], template)
     else:
@@ -194,6 +210,32 @@ def generate(job_id, args):
         folder = directory(job_id)
         baseline = folder / 'baseline'
         baseline.mkdir()
+        # Lưu bản sao gốc của file nguồn để đối chiếu và khôi phục khi sửa
+        if (folder / 'input.xlsx').exists():
+            shutil.copy2(folder / 'input.xlsx', baseline / 'input.xlsx')
+        source_name = read_job(job_id).get('source')
+        if not source_name or source_name.lower() == 'input.xlsx':
+            found = local_input()
+            source_name = found.name if found else '2026 INTERNAL SCHEDULE FERRERO-WK40.xlsx'
+        src_disk_file = folder / 'input.xlsx'
+        source_size = src_disk_file.stat().st_size if src_disk_file.exists() else 0
+        report['source'] = source_name
+        report['source_file'] = {
+            'id': -1,
+            'name': source_name,
+            'file': source_name,
+            'original_name': source_name,
+            'size': source_size,
+            'items': 0,
+            'markets': 0,
+            'revision': 0,
+            'edits': [],
+            'is_source': True,
+            'edit_mode': 'full',
+            'changed_cells': 0,
+            'status_label': 'matched',
+            'problems': []
+        }
         source_values = openpyxl.load_workbook(args.input, data_only=True)
         source_reader = process.SheetReader(source_values['SUM'])
         for index, entry in enumerate(report['families']):
@@ -270,12 +312,71 @@ def reconcile_source(reader, path, entry, workbook=None):
 
 def get_report(job_id):
     folder = directory(job_id)
-    if read_job(job_id)['status'] != 'ready':
+    job_info = read_job(job_id)
+    if job_info['status'] != 'ready':
         raise ValueError('Phiên chưa xử lý xong.')
-    return json.loads((folder/'review.json').read_text(encoding='utf-8'))
+    report = json.loads((folder/'review.json').read_text(encoding='utf-8'))
+    real_source = job_info.get('source')
+    if not real_source or real_source.lower() == 'input.xlsx':
+        found = local_input()
+        real_source = found.name if found else '2026 INTERNAL SCHEDULE FERRERO-WK40.xlsx'
+    report['source'] = real_source
+
+    src_disk_file = folder / 'baseline' / 'input.xlsx'
+    if not src_disk_file.exists():
+        src_disk_file = folder / 'input.xlsx'
+    source_size = src_disk_file.stat().st_size if src_disk_file.exists() else 0
+
+    if 'source_file' not in report:
+        report['source_file'] = {
+            'id': -1,
+            'name': real_source,
+            'file': real_source,
+            'original_name': real_source,
+            'size': source_size,
+            'items': 0,
+            'markets': 0,
+            'revision': 0,
+            'edits': [],
+            'is_source': True,
+            'changed_cells': 0,
+            'status_label': 'matched',
+            'problems': []
+        }
+    else:
+        report['source_file']['original_name'] = real_source
+        report['source_file']['name'] = real_source
+        report['source_file']['file'] = real_source
+        if not report['source_file'].get('size'):
+            report['source_file']['size'] = source_size
+    return report
 
 
 def get_entry(report, file_id):
+    if file_id in (-1, '-1'):
+        real_source = report.get('source') or '2026 INTERNAL SCHEDULE FERRERO-WK40.xlsx'
+        if 'source_file' not in report:
+            report['source_file'] = {
+                'id': -1,
+                'name': real_source,
+                'file': real_source,
+                'original_name': real_source,
+                'size': 0,
+                'items': 0,
+                'markets': 0,
+                'revision': 0,
+                'edits': [],
+                'is_source': True,
+                'changed_cells': 0,
+                'status_label': 'matched',
+                'problems': []
+            }
+        else:
+            if real_source and (not report['source_file'].get('original_name') or report['source_file']['original_name'].lower() == 'input.xlsx'):
+                report['source_file']['original_name'] = real_source
+                report['source_file']['name'] = real_source
+                report['source_file']['file'] = real_source
+        return report['source_file']
     if not isinstance(file_id, int) or file_id < 0 or file_id >= len(report['families']):
         raise ValueError('Không tìm thấy file Family.')
     return report['families'][file_id]
@@ -285,6 +386,66 @@ def equal(a, b):
     if isinstance(a, (int, float)) and isinstance(b, (int, float)):
         return math.isclose(a, b, rel_tol=1e-12, abs_tol=1e-9)
     return serial(a) == serial(b)
+
+
+def analyze_source(path, baseline, entry, workbook=None, original_workbook=None):
+    wb = workbook if workbook is not None else openpyxl.load_workbook(path, data_only=True)
+    original = original_workbook if original_workbook is not None else openpyxl.load_workbook(baseline, data_only=True)
+    changes, compared = 0, 0
+    for sheet in wb:
+        if sheet.title not in original.sheetnames:
+            continue
+        orig_sheet = original[sheet.title]
+        for row in sheet:
+            for cell in row:
+                if isinstance(cell, MergedCell):
+                    continue
+                old = orig_sheet[cell.coordinate].value
+                if cell.value is not None or old is not None:
+                    compared += 1
+                    if not equal(cell.value, old):
+                        changes += 1
+    if workbook is None:
+        wb.close()
+    if original_workbook is None:
+        original.close()
+    return {'problems': [], 'changed_cells': changes, 'compared_cells': compared,
+            'current_total': None,
+            'status_label': 'edited' if changes else 'matched'}
+
+
+def suggest_week_fix(value):
+    try:
+        parts = str(value).strip().split('/')
+        if len(parts) == 2:
+            year, week = int(parts[0]), int(parts[1])
+            max_weeks = date(year, 12, 28).isocalendar().week
+            if week > max_weeks:
+                next_year = year + 1
+                diff = week - max_weeks
+                suggested_week = f"{next_year}/{diff:02d}"
+                return (f"Năm {year} theo lịch ISO chỉ có {max_weeks} tuần (không có tuần {week}). "
+                        f"Gợi ý sửa: đổi thành \"{suggested_week}\" (tuần đầu năm sau) "
+                        f"hoặc kiểm tra lại file nguồn nếu đúng là tuần {year}/{max_weeks:02d}.")
+            if week < 1:
+                return f"Số tuần phải từ 01 đến {max_weeks:02d}. Gợi ý sửa: {year}/01."
+            return f"Tuần {value} không hợp lệ theo ISO. Định dạng chuẩn là YYYY/WW (ví dụ {year}/01)."
+    except Exception:
+        pass
+    return "Định dạng chuẩn là YYYY/WW (ví dụ 2028/01). Click vào để đến ô và nhập lại."
+
+
+def suggest_error_fix(err_val):
+    val_str = str(err_val).upper()
+    if '#REF' in val_str:
+        return "Lỗi #REF!: Công thức tham chiếu ô không tồn tại hoặc bị xóa. Kiểm tra lại dữ liệu nguồn."
+    if '#VAL' in val_str:
+        return "Lỗi #VALUE!: Sai kiểu dữ liệu (chữ và số kết hợp). Kiểm tra lại giá trị đầu vào."
+    if '#DIV' in val_str:
+        return "Lỗi #DIV/0!: Phép chia cho 0. Kiểm tra lại mẫu số trong công thức."
+    if '#NAME' in val_str:
+        return "Lỗi #NAME?: Tên hàm hoặc vùng dữ liệu không xác định."
+    return "Lỗi tính toán Excel. Click vào để đến ô và kiểm tra/sửa lại dữ liệu."
 
 
 def analyze(path, baseline, entry, workbook=None, original_workbook=None):
@@ -303,7 +464,8 @@ def analyze(path, baseline, entry, workbook=None, original_workbook=None):
                         changes += 1
                 if cell.data_type == 'e':
                     problems.append({'sheet': sheet.title, 'cell': cell.coordinate,
-                                     'kind': 'error', 'message': str(cell.value)})
+                                     'kind': 'error', 'message': str(cell.value),
+                                     'suggestion': suggest_error_fix(cell.value)})
     breakdown = wb['Breakdown ']
     for row in range(14, breakdown.max_row + 1):
         value = breakdown.cell(row, 1).value
@@ -312,7 +474,8 @@ def analyze(path, baseline, entry, workbook=None, original_workbook=None):
             date.fromisocalendar(year, week, 1)
         except (ValueError, TypeError):
             problems.append({'sheet': 'Breakdown ', 'cell': f'A{row}', 'kind': 'week',
-                             'message': f'Tuần {value} không hợp lệ theo ISO.'})
+                             'message': f'Tuần {value} không hợp lệ theo ISO.',
+                             'suggestion': suggest_week_fix(value)})
     last = wb.worksheets[1].cell(wb.worksheets[1].max_row, entry['markets'] + 3).value
     if workbook is None:
         wb.close()
@@ -325,6 +488,11 @@ def analyze(path, baseline, entry, workbook=None, original_workbook=None):
 
 def edit_type(wb, entry, sheet, cell):
     if isinstance(cell, MergedCell) or cell.data_type == 'f':
+        return None
+    if entry.get('is_source'):
+        # The uploaded workbook may contain formula caches that openpyxl cannot
+        # preserve when saving. Keep it read-only; replacing it creates a fresh
+        # job and regenerates every derived Family workbook.
         return None
     r, c = cell.row, cell.column
     if sheet.title == 'Breakdown ':
@@ -407,18 +575,33 @@ def preview(job_id, file_id, sheet_index):
         report = get_report(job_id)
         entry = get_entry(report, file_id)
         folder = directory(job_id)
-        wb = openpyxl.load_workbook(folder/'files'/entry['file'])
-        values = openpyxl.load_workbook(folder/'files'/entry['file'], data_only=True)
-        old = openpyxl.load_workbook(folder/'baseline'/entry['file'], data_only=True)
-        if sheet_index not in (0, 1, 2):
+        if entry.get('is_source'):
+            file_path = folder / 'input.xlsx'
+            base_path = folder / 'baseline' / 'input.xlsx'
+            if not base_path.exists():
+                shutil.copy2(file_path, base_path)
+            if entry.get('edit_mode') != 'full':
+                file_path = base_path
+        else:
+            file_path = folder / 'files' / entry['file']
+            base_path = folder / 'baseline' / entry['file']
+        wb = openpyxl.load_workbook(file_path)
+        values = openpyxl.load_workbook(file_path, data_only=True)
+        old = openpyxl.load_workbook(base_path, data_only=True)
+        old_formulas = openpyxl.load_workbook(base_path) if entry.get('is_source') else None
+        if sheet_index < 0 or sheet_index >= len(wb.worksheets):
             raise ValueError('Sheet không hợp lệ.')
         sheet = wb.worksheets[sheet_index]
+        source_enabled = bool(entry.get('is_source') and excel_engine.capability()['available'])
         cells = []
         for row in sheet:
             record = []
             for cell in row:
                 value = values[sheet.title][cell.coordinate].value
-                original = old[sheet.title][cell.coordinate].value
+                original = old[sheet.title][cell.coordinate].value if sheet.title in old.sheetnames else value
+                source_editable = source_enabled and not isinstance(cell, MergedCell) and (cell.data_type != 'f' or isinstance(cell.value, str))
+                if entry.get('is_source') and sheet.title == 'SUM':
+                    value = entry.get('overrides', {}).get(cell.coordinate, value)
 
                 bg_color = None
                 if cell.fill and getattr(cell.fill, 'fill_type', None) in ('solid', 'patternFill'):
@@ -442,9 +625,10 @@ def preview(job_id, file_id, sheet_index):
                 record.append({'address': cell.coordinate, 'value': serial(value), 'original': serial(original),
                                'format': cell.number_format,
                                'formula': cell.value if cell.data_type == 'f' else None,
-                               'editable': edit_type(wb, entry, sheet, cell),
-                               'changed': not equal(value, original),
-                               'error': values[sheet.title][cell.coordinate].data_type == 'e',
+                               'editable': 'source_cell' if source_editable else edit_type(wb, entry, sheet, cell),
+                               'input_type': ('formula' if cell.data_type == 'f' else 'boolean' if isinstance(value, bool) else 'number' if isinstance(value, (int, float)) else 'date' if isinstance(value, (date, datetime)) else 'blank' if value is None else 'text'),
+                               'changed': not equal(value, original) or bool(old_formulas and not equal(cell.value, old_formulas[sheet.title][cell.coordinate].value)),
+                               'error': isinstance(value, str) and value in process.ERRORS,
                                'comment': (cell.comment.text if cell.comment else
                                            entry.get('review_notes', {}).get(sheet.title, {}).get(cell.coordinate, '')),
                                'bold': bool(cell.font.bold),
@@ -472,12 +656,15 @@ def preview(job_id, file_id, sheet_index):
                 row_heights[str(r_idx)] = round(dim.height * 1.33, 1)
 
         result = {'file': entry, 'revision': entry['revision'], 'sheets': wb.sheetnames,
+                  'source_editing': excel_engine.capability() if entry.get('is_source') else None,
                   'sheet': sheet.title, 'sheet_index': sheet_index, 'rows': cells,
                   'merges': [str(a) for a in sheet.merged_cells.ranges],
                   'columns': [get_column_letter(c) for c in range(1, sheet.max_column+1)],
                   'col_widths': col_widths, 'row_heights': row_heights}
         for book in (wb, values, old):
             book.close()
+        if old_formulas:
+            old_formulas.close()
         return result
 
 
@@ -559,18 +746,167 @@ def sync_summary(wb, entry):
                 f'{get_column_letter(c)}{r}'] = f'Tuần {label}.'
 
 
-def apply_edit(job_id, file_id, payload):
+def source_edit_targets(report):
+    """Use the recorded source coordinates, never infer output column order."""
+    targets = {}
+    for family in report['families']:
+        for address, note in family.get('review_notes', {}).get('Breakdown ', {}).items():
+            row, col = coordinate_to_tuple(address)
+            if not (2 <= col <= family['items'] + 1 and (row in (9, 10) or row >= 14)):
+                continue
+            match = re.search(r'\nSUM!([A-Z]+[1-9][0-9]*)(?:\n|$)', note)
+            if match:
+                targets.setdefault(match[1], []).append((family, address))
+    return targets
+
+
+def apply_source_edit(job_id, report, entry, payload):
+    """Apply an explicit SUM override to all consumers, retaining unrelated edits.
+
+    The original Excel package is immutable: its arbitrary formulas and caches
+    are not rewritten. Overrides are persisted in review.json and shown in SUM.
+    """
+    if payload.get('revision') != entry['revision']:
+        raise ValueError('File vừa được cập nhật. Hãy tải lại bảng trước khi sửa tiếp.')
+    folder = directory(job_id)
+    source = folder/'baseline'/'input.xlsx'
+    if not source.exists():
+        source = folder/'input.xlsx'
+    book = openpyxl.load_workbook(source, data_only=True, read_only=True)
+    try:
+        sheet_id = payload.get('sheet')
+        if type(sheet_id) is not int or not 0 <= sheet_id < len(book.sheetnames) or book.sheetnames[sheet_id] != 'SUM':
+            raise ValueError('Chỉ sửa số liệu dùng để xuất trên sheet SUM; các sheet khác chỉ dùng để xem.')
+        address = payload.get('cell', '')
+        targets = source_edit_targets(report).get(address, [])
+        if not targets:
+            raise ValueError('Ô này chỉ dùng để xem; hãy chọn ô số lượng SUM có liên kết tới file Family.')
+        original = book['SUM'][address].value
+    finally:
+        book.close()
+    if payload.get('restore'):
+        value = original
+    else:
+        raw = payload.get('value')
+        try:
+            value = None if raw in ('', None) else float(raw)
+        except (TypeError, ValueError) as exc:
+            raise ValueError('Nhập số hợp lệ, dùng dấu chấm cho phần thập phân.') from exc
+        if value is not None and (not math.isfinite(value) or abs(value) > 1e15):
+            raise ValueError('Số lượng phải hữu hạn và không vượt 1.000.000.000.000.000.')
+    overrides = entry.setdefault('overrides', {})
+    before = overrides.get(address, original)
+    if equal(value, original):
+        overrides.pop(address, None)
+    else:
+        overrides[address] = value
+    # Stage every affected workbook before publishing any changes.
+    staging = folder/('source-edit-' + uuid.uuid4().hex)
+    staging.mkdir()
+    originals = {}
+    staged = {}
+    try:
+        grouped = {}
+        for family, target in targets:
+            grouped.setdefault(family['id'], (family, []))[1].append(target)
+        for family, addresses in grouped.values():
+            path = folder/'files'/family['file']
+            originals[path] = path.read_bytes()
+            workbook = openpyxl.load_workbook(path)
+            try:
+                for target in addresses:
+                    row, col = coordinate_to_tuple(target)
+                    old = workbook['Breakdown '][target].value
+                    process.put(workbook['Breakdown '], row, col, value)
+                    family['edits'].append({'time': timestamp(), 'sheet': 'Breakdown ', 'cell': target,
+                                            'before': serial(old), 'after': serial(value),
+                                            'reason': f'Điều chỉnh nguồn SUM!{address}',
+                                            'restored': bool(payload.get('restore'))})
+                recalculate(workbook)
+                temp = staging/family['file']
+                process.save_with_cache(workbook, temp)
+            finally:
+                workbook.close()
+            family['revision'] += 1
+            family.update(analyze(temp, folder/'baseline'/family['file'], family))
+            staged[path] = temp
+        entry['revision'] += 1
+        entry['changed_cells'] = len(overrides)
+        entry['status_label'] = 'edited' if overrides else 'matched'
+        entry['edits'].append({'time': timestamp(), 'sheet': 'SUM', 'cell': address,
+                               'before': serial(before), 'after': serial(value),
+                               'reason': str(payload.get('reason', '')).strip()[:500],
+                               'restored': bool(payload.get('restore'))})
+        entry['updated_families'] = list(grouped)
+        try:
+            for path, temp in staged.items():
+                temp.replace(path)
+            write_json(folder/'review.json', report)
+        except Exception:
+            for path, data in originals.items():
+                path.write_bytes(data)
+            raise
+    finally:
+        shutil.rmtree(staging)
+    return entry
+
+
+def apply_batch(job_id, file_id, payload):
+    """Stage all edits in a new session; publish only after every edit succeeds."""
     with job_lock(job_id):
         report = get_report(job_id)
         entry = get_entry(report, file_id)
+        edits = payload.get('edits')
+        if not isinstance(edits, list) or not 1 <= len(edits) <= 1000 or any(not isinstance(e, dict) for e in edits):
+            raise ValueError('Mỗi lần lưu cần từ 1 đến 1000 ô hợp lệ.')
+        if payload.get('revision') != entry['revision']:
+            raise ValueError('File vừa thay đổi. Hãy tải lại trước khi lưu.')
+        if entry.get('is_source'):
+            return source_edit.apply(sys.modules[__name__], job_id, report, entry, payload)
+        new_id = uuid.uuid4().hex
+        source = directory(job_id)
+        target = STORE/new_id
+        with job_lock(new_id):
+            target.mkdir()
+            for name in ('files', 'baseline'):
+                shutil.copytree(source/name, target/name)
+            for name in ('input.xlsx', 'template.xlsx', 'review.json'):
+                if (source/name).exists():
+                    shutil.copy2(source/name, target/name)
+            state = {**read_job(job_id), 'id': new_id, 'parent_job': job_id, 'created': timestamp(), 'status': 'ready'}
+            state.pop('superseded_by', None)
+            write_json(target/'job.json', state)
+            try:
+                revision = entry['revision']
+                staged_report = get_report(new_id)
+                workbook = openpyxl.load_workbook(target/'files'/entry['file'])
+                try:
+                    for index, edit in enumerate(edits):
+                        result = apply_edit(new_id, file_id, {**edit, 'revision': revision},
+                                            _workbook=workbook, _report=staged_report, _defer=index < len(edits)-1)
+                        revision = result['revision']
+                finally:
+                    workbook.close()
+                return {**result, 'new_job_id': new_id}
+            except Exception as exc:
+                update_job(new_id, status='error', message=str(exc))
+                raise
+
+
+def apply_edit(job_id, file_id, payload, *, _workbook=None, _report=None, _defer=False):
+    with job_lock(job_id):
+        report = _report if _report is not None else get_report(job_id)
+        entry = get_entry(report, file_id)
+        if entry.get('is_source'):
+            return source_edit.apply(sys.modules[__name__], job_id, report, entry, payload)
         if payload.get('revision') != entry['revision']:
             raise ValueError('File vừa được cập nhật. Hãy tải lại bảng trước khi sửa tiếp.')
         folder = directory(job_id)
         path, baseline = folder/'files'/entry['file'], folder/'baseline'/entry['file']
-        wb = openpyxl.load_workbook(path)
+        wb = _workbook if _workbook is not None else openpyxl.load_workbook(path)
         sheet_id = payload.get('sheet')
         address = payload.get('cell', '')
-        if sheet_id not in (0, 1, 2) or not re.fullmatch(r'[A-Z]{1,3}[1-9][0-9]{0,6}', address):
+        if not isinstance(sheet_id, int) or sheet_id < 0 or sheet_id >= len(wb.worksheets) or not re.fullmatch(r'[A-Z]{1,3}[1-9][0-9]{0,6}', address):
             raise ValueError('Địa chỉ ô không hợp lệ.')
         sheet = wb.worksheets[sheet_id]
         r, c = coordinate_to_tuple(address)
@@ -579,11 +915,12 @@ def apply_edit(job_id, file_id, payload):
         cell = sheet[address]
         kind = edit_type(wb, entry, sheet, cell)
         if not kind:
-            raise ValueError('Ô công thức hoặc cấu trúc chỉ đọc. Hãy sửa dữ liệu ở Breakdown.')
+            raise ValueError('Ô công thức hoặc cấu trúc chỉ đọc.')
         old_value = serial(cell.value)
         if payload.get('restore'):
             original = openpyxl.load_workbook(baseline, data_only=True)
-            new_value = original[sheet.title][address].value
+            orig_sheet = original[sheet.title] if sheet.title in original.sheetnames else original.worksheets[sheet_id]
+            new_value = orig_sheet[address].value
             original.close()
         else:
             new_value = payload.get('value')
@@ -616,17 +953,20 @@ def apply_edit(job_id, file_id, payload):
                 if len(new_value) > 1000:
                     raise ValueError('Nội dung tối đa 1.000 ký tự.')
         process.put(sheet, r, c, new_value)
-        sync_summary(wb, entry)
-        recalculate(wb)
-        process.save_with_cache(wb, path)
-        wb.close()
+        if not _defer:
+            sync_summary(wb, entry)
+            recalculate(wb)
+            process.save_with_cache(wb, path)
+        if _workbook is None:
+            wb.close()
         entry['revision'] += 1
         entry['edits'].append({'time': timestamp(), 'sheet': sheet.title, 'cell': address,
                                'before': old_value, 'after': serial(new_value),
                                'reason': str(payload.get('reason', '')).strip()[:500],
                                'restored': bool(payload.get('restore'))})
-        entry.update(analyze(path, baseline, entry))
-        write_json(folder/'review.json', report)
+        if not _defer:
+            entry.update(analyze(path, baseline, entry))
+            write_json(folder/'review.json', report)
         return entry
 
 
@@ -653,7 +993,7 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header('Content-Encoding', 'gzip')
         self.send_header('Cache-Control', 'no-store')
         self.send_header('X-Content-Type-Options', 'nosniff')
-        self.send_header('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'")
+        self.send_header('Content-Security-Policy', "default-src 'self'; script-src 'self'; worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'")
         if filename:
             self.send_header('Content-Disposition', "attachment; filename*=UTF-8''"+quote(filename))
         self.end_headers()
@@ -689,6 +1029,8 @@ class Handler(BaseHTTPRequestHandler):
             query = parse_qs(parsed.query)
             static = {'/': ('index.html', 'text/html; charset=utf-8'),
                       '/app.js': ('app.js', 'text/javascript; charset=utf-8'),
+                      '/fflate.js': ('vendor/fflate.min.js', 'text/javascript; charset=utf-8'),
+                      '/source_optimizer.js': ('source_optimizer.js', 'text/javascript; charset=utf-8'),
                       '/style.css': ('style.css', 'text/css; charset=utf-8')}
             if path in static:
                 name, mime = static[path]
@@ -718,16 +1060,26 @@ class Handler(BaseHTTPRequestHandler):
                     return self.send(preview(job_id, file_id, int(query.get('sheet', ['0'])[0])))
                 folder = directory(job_id)
                 if action == 'download':
+                    if file_id == -1:
+                        src_path = folder / 'input.xlsx'
+                        src_name = entry.get('original_name') or read_job(job_id).get('source')
+                        if not src_name or src_name.lower() == 'input.xlsx':
+                            found = local_input()
+                            src_name = found.name if found else '2026 INTERNAL SCHEDULE FERRERO-WK40.xlsx'
+                        return self.send(src_path.read_bytes(),
+                                         content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                                         filename=src_name)
                     return self.send((folder/'files'/entry['file']).read_bytes(),
                                      content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', filename=entry['file'])
                 if action == 'zip':
                     buffer = io.BytesIO()
                     with ZipFile(buffer, 'w', ZIP_DEFLATED) as archive:
                         for entry in report['families']:
-                            archive.write(folder/'files'/entry['file'], arcname=entry['file'])
-                        archive.writestr('review_report.json', json.dumps(report, ensure_ascii=False, default=serial, indent=2))
+                            family_path = folder / 'files' / entry['file']
+                            if family_path.exists():
+                                archive.write(family_path, arcname=entry['file'])
                     return self.send(buffer.getvalue(), content_type='application/zip',
-                                     filename=f'Shipment_{read_job(job_id)["season"]}_WK{read_job(job_id)["week"]:02d}.zip')
+                                     filename=f'Families_{read_job(job_id)["season"]}_WK{read_job(job_id)["week"]:02d}.zip')
         except (ValueError, KeyError, IndexError, OSError) as exc:
             self.send({'error': str(exc)}, 400)
 
@@ -742,11 +1094,48 @@ class Handler(BaseHTTPRequestHandler):
                 raise ValueError('Dữ liệu yêu cầu không hợp lệ.')
             if self.path == '/api/jobs':
                 return self.send(create_job(payload), 202)
-            match = re.fullmatch(r'/api/jobs/([a-f0-9]{32})/edit/([0-9]+)', self.path)
+            if self.path == '/api/jobs/clear':
+                deleted = 0
+                for p in list(STORE.glob('*')):
+                    if p.is_dir():
+                        shutil.rmtree(p, ignore_errors=True)
+                        deleted += 1
+                return self.send({'success': True, 'deleted': deleted})
+            match_del = re.fullmatch(r'/api/jobs/([a-f0-9]{32})/delete', self.path)
+            if match_del:
+                job_id = match_del[1]
+                folder = STORE / job_id
+                if folder.exists():
+                    shutil.rmtree(folder, ignore_errors=True)
+                return self.send({'success': True, 'id': job_id})
+            match = re.fullmatch(r'/api/jobs/([a-f0-9]{32})/edit/(-?[0-9]+)', self.path)
             if match:
+                if 'edits' in payload:
+                    return self.send(apply_batch(match[1], int(match[2]), payload))
                 return self.send(apply_edit(match[1], int(match[2]), payload))
             self.send({'error': 'Không tìm thấy đường dẫn.'}, 404)
         except (ValueError, TypeError, KeyError, IndexError, OSError, argparse.ArgumentTypeError) as exc:
+            self.send({'error': str(exc)}, 400)
+
+    def do_DELETE(self):
+        try:
+            self.guard()
+            if self.path in ('/api/jobs', '/api/jobs/clear'):
+                deleted = 0
+                for p in list(STORE.glob('*')):
+                    if p.is_dir():
+                        shutil.rmtree(p, ignore_errors=True)
+                        deleted += 1
+                return self.send({'success': True, 'deleted': deleted})
+            match_del = re.fullmatch(r'/api/jobs/([a-f0-9]{32})', self.path)
+            if match_del:
+                job_id = match_del[1]
+                folder = STORE / job_id
+                if folder.exists():
+                    shutil.rmtree(folder, ignore_errors=True)
+                return self.send({'success': True, 'id': job_id})
+            self.send({'error': 'Không tìm thấy đường dẫn.'}, 404)
+        except Exception as exc:
             self.send({'error': str(exc)}, 400)
 
 
