@@ -10,6 +10,9 @@ import base64
 from collections import OrderedDict
 from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime, timezone
+from email import policy
+from email.parser import BytesParser
+import gzip
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import io
 import json
@@ -93,7 +96,7 @@ def save_upload(upload, path):
     if not isinstance(upload, dict) or not str(upload.get('name', '')).lower().endswith('.xlsx'):
         raise ValueError('Vui lòng chọn file .xlsx.')
     try:
-        raw = base64.b64decode(upload['data'], validate=True)
+        raw = upload['raw'] if isinstance(upload.get('raw'), bytes) else base64.b64decode(upload['data'], validate=True)
     except (ValueError, KeyError) as exc:
         raise ValueError('Không đọc được file tải lên.') from exc
     if len(raw) > MAX_UPLOAD:
@@ -108,6 +111,32 @@ def save_upload(upload, path):
         raise ValueError('File Excel bị hỏng hoặc chưa đúng định dạng .xlsx.') from exc
     path.write_bytes(raw)
     return Path(upload['name'].replace('\\', '/')).name
+
+
+def parse_payload(content_type, raw):
+    """Accept native browser FormData without expanding Excel files into base64."""
+    if not content_type.lower().startswith('multipart/form-data'):
+        return json.loads(raw)
+    if '\r' in content_type or '\n' in content_type:
+        raise ValueError('Content-Type không hợp lệ.')
+    message = BytesParser(policy=policy.default).parsebytes(
+        ('Content-Type: ' + content_type + '\r\nMIME-Version: 1.0\r\n\r\n').encode('ascii') + raw)
+    if not message.is_multipart() or message.defects:
+        raise ValueError('Dữ liệu tải lên không hợp lệ.')
+    payload = {}
+    for part in message.iter_parts():
+        name = part.get_param('name', header='content-disposition')
+        if name not in {'options', 'input', 'template'} or name in payload or part.defects:
+            raise ValueError('Trường tải lên không hợp lệ hoặc bị trùng.')
+        data = part.get_payload(decode=True)
+        if name == 'options':
+            payload[name] = json.loads(data)
+        else:
+            payload[name] = {'name': part.get_filename(), 'raw': data}
+    options = payload.pop('options', {})
+    if not isinstance(options, dict) or set(options) - {'week', 'season', 'start', 'end', 'use_local'}:
+        raise ValueError('Tùy chọn tải lên không hợp lệ.')
+    return {**options, **payload}
 
 
 def create_job(payload):
@@ -147,6 +176,11 @@ def create_job(payload):
     args = SimpleNamespace(input=str(source), template=str(template), output=str(folder/'files'),
                            family=None, season=season, week=week, start_week=start, end_week=end,
                            date=None, strict=False, overwrite=False, source_name=source_name)
+    if os.environ.get('VERCEL'):
+        # A plain background thread may be suspended after a function responds.
+        # Finish within this invocation rather than leave polling stuck forever.
+        generate(job_id, args)
+        return read_job(job_id)
     POOL.submit(generate, job_id, args)
     return state
 
@@ -166,9 +200,17 @@ def generate(job_id, args):
             entry['id'] = index
             entry['revision'] = 0
             entry['edits'] = []
-            entry['source_checks'] = reconcile_source(source_reader, folder/'files'/entry['file'], entry)
-            shutil.copy2(folder/'files'/entry['file'], baseline/entry['file'])
-            entry.update(analyze(folder/'files'/entry['file'], baseline/entry['file'], entry))
+            path = folder/'files'/entry['file']
+            # The baseline is an exact byte copy: reuse one parsed workbook for
+            # both independent checks rather than parsing the same file 3 times.
+            exported = openpyxl.load_workbook(path, data_only=True)
+            try:
+                entry['source_checks'] = reconcile_source(source_reader, path, entry, workbook=exported)
+                shutil.copy2(path, baseline/entry['file'])
+                entry.update(analyze(path, baseline/entry['file'], entry,
+                                     workbook=exported, original_workbook=exported))
+            finally:
+                exported.close()
         source_values.close()
         write_json(folder/'review.json', report)
         update_job(job_id, status='ready', total=len(report['families']), completed=len(report['families']),
@@ -177,7 +219,7 @@ def generate(job_id, args):
         update_job(job_id, status='error', message=str(exc))
 
 
-def reconcile_source(reader, path, entry):
+def reconcile_source(reader, path, entry, workbook=None):
     """Independently compare exported quantities and all rollups to the actual SUM."""
     groups = OrderedDict()
     for col in entry['source_columns']:
@@ -190,7 +232,7 @@ def reconcile_source(reader, path, entry):
             match = process.WEEK_RE.fullmatch(process.clean(reader.value(row,col)))
             if match:
                 week_rows[f'{int(match[1])}/{int(match[2]):02d}'] = row
-    wb = openpyxl.load_workbook(path, data_only=True)
+    wb = workbook if workbook is not None else openpyxl.load_workbook(path, data_only=True)
     b, s, _ = wb.worksheets
     checked = 0
 
@@ -221,7 +263,8 @@ def reconcile_source(reader, path, entry):
         check(s.cell(row+5,entry['markets']+2), weekly)
         running = total([running,weekly])
         check(s.cell(row+5,entry['markets']+3), running)
-    wb.close()
+    if workbook is None:
+        wb.close()
     return checked
 
 
@@ -244,9 +287,9 @@ def equal(a, b):
     return serial(a) == serial(b)
 
 
-def analyze(path, baseline, entry):
-    wb = openpyxl.load_workbook(path, data_only=True)
-    original = openpyxl.load_workbook(baseline, data_only=True)
+def analyze(path, baseline, entry, workbook=None, original_workbook=None):
+    wb = workbook if workbook is not None else openpyxl.load_workbook(path, data_only=True)
+    original = original_workbook if original_workbook is not None else openpyxl.load_workbook(baseline, data_only=True)
     problems, changes, compared = [], 0, 0
     for sheet in wb:
         for row in sheet:
@@ -271,8 +314,10 @@ def analyze(path, baseline, entry):
             problems.append({'sheet': 'Breakdown ', 'cell': f'A{row}', 'kind': 'week',
                              'message': f'Tuần {value} không hợp lệ theo ISO.'})
     last = wb.worksheets[1].cell(wb.worksheets[1].max_row, entry['markets'] + 3).value
-    wb.close()
-    original.close()
+    if workbook is None:
+        wb.close()
+    if original_workbook is None:
+        original.close()
     return {'problems': problems, 'changed_cells': changes, 'compared_cells': compared,
             'current_total': last if isinstance(last, (int, float)) else None,
             'status_label': 'warning' if problems else ('edited' if changes else 'matched')}
@@ -302,6 +347,54 @@ def edit_type(wb, entry, sheet, cell):
     return None
 
 
+def color_to_hex(color_obj):
+    if not color_obj:
+        return None
+    try:
+        ctype = getattr(color_obj, 'type', None)
+        if ctype == 'rgb' and color_obj.rgb:
+            s = str(color_obj.rgb)
+            if len(s) == 8:
+                if s.startswith('00'):
+                    return None
+                return '#' + s[2:]
+            elif len(s) == 6:
+                return '#' + s
+        elif ctype == 'theme' and getattr(color_obj, 'theme', None) is not None:
+            theme_colors = [
+                'FFFFFF', '000000', 'EEECE1', '1F497D',
+                '4F81BD', 'C0504D', '9BBB59', '8064A2',
+                '4BACC6', 'F79646'
+            ]
+            theme = int(color_obj.theme)
+            tint = float(getattr(color_obj, 'tint', 0.0) or 0.0)
+            if 0 <= theme < len(theme_colors):
+                hex_code = theme_colors[theme]
+                r, g, b = int(hex_code[0:2], 16), int(hex_code[2:4], 16), int(hex_code[4:6], 16)
+                if tint > 0:
+                    r = int(r + (255 - r) * tint)
+                    g = int(g + (255 - g) * tint)
+                    b = int(b + (255 - b) * tint)
+                elif tint < 0:
+                    r = int(r * (1 + tint))
+                    g = int(g * (1 + tint))
+                    b = int(b * (1 + tint))
+                return f'#{r:02X}{g:02X}{b:02X}'
+        elif ctype == 'indexed' and getattr(color_obj, 'indexed', None) is not None:
+            idx = int(color_obj.indexed)
+            if 0 <= idx < len(openpyxl.styles.colors.COLOR_INDEX):
+                s = str(openpyxl.styles.colors.COLOR_INDEX[idx])
+                if len(s) == 8:
+                    if s.startswith('00'):
+                        return None
+                    return '#' + s[2:]
+                elif len(s) == 6:
+                    return '#' + s
+    except Exception:
+        pass
+    return None
+
+
 def preview(job_id, file_id, sheet_index):
     with job_lock(job_id):
         report = get_report(job_id)
@@ -319,6 +412,26 @@ def preview(job_id, file_id, sheet_index):
             for cell in row:
                 value = values[sheet.title][cell.coordinate].value
                 original = old[sheet.title][cell.coordinate].value
+
+                bg_color = None
+                if cell.fill and getattr(cell.fill, 'fill_type', None) in ('solid', 'patternFill'):
+                    c = getattr(cell.fill, 'start_color', None) or getattr(cell.fill, 'fgColor', None)
+                    bg_color = color_to_hex(c)
+
+                fg_color = None
+                if cell.font and getattr(cell.font, 'color', None):
+                    fg_color = color_to_hex(cell.font.color)
+
+                borders = {}
+                if cell.border:
+                    for side in ('top', 'bottom', 'left', 'right'):
+                        b_side = getattr(cell.border, side, None)
+                        if b_side and getattr(b_side, 'style', None):
+                            borders[side] = {
+                                'style': b_side.style,
+                                'color': color_to_hex(getattr(b_side, 'color', None)) or '#d4d4d8'
+                            }
+
                 record.append({'address': cell.coordinate, 'value': serial(value), 'original': serial(original),
                                'format': cell.number_format,
                                'formula': cell.value if cell.data_type == 'f' else None,
@@ -327,12 +440,35 @@ def preview(job_id, file_id, sheet_index):
                                'error': values[sheet.title][cell.coordinate].data_type == 'e',
                                'comment': (cell.comment.text if cell.comment else
                                            entry.get('review_notes', {}).get(sheet.title, {}).get(cell.coordinate, '')),
-                               'bold': bool(cell.font.bold)})
+                               'bold': bool(cell.font.bold),
+                               'italic': bool(getattr(cell.font, 'italic', False)),
+                               'font_size': getattr(cell.font, 'size', None),
+                               'bg': bg_color,
+                               'fg': fg_color,
+                               'align': getattr(cell.alignment, 'horizontal', None) if cell.alignment else None,
+                               'valign': getattr(cell.alignment, 'vertical', None) if cell.alignment else None,
+                               'wrap': bool(getattr(cell.alignment, 'wrap_text', False)) if cell.alignment else False,
+                               'borders': borders if borders else None})
             cells.append(record)
+
+        col_widths = {}
+        for c_idx in range(1, sheet.max_column + 1):
+            col_letter = get_column_letter(c_idx)
+            dim = sheet.column_dimensions.get(col_letter)
+            if dim and dim.width:
+                col_widths[col_letter] = round(dim.width * 7.5, 1)
+
+        row_heights = {}
+        for r_idx in range(1, sheet.max_row + 1):
+            dim = sheet.row_dimensions.get(r_idx)
+            if dim and dim.height:
+                row_heights[str(r_idx)] = round(dim.height * 1.33, 1)
+
         result = {'file': entry, 'revision': entry['revision'], 'sheets': wb.sheetnames,
                   'sheet': sheet.title, 'sheet_index': sheet_index, 'rows': cells,
                   'merges': [str(a) for a in sheet.merged_cells.ranges],
-                  'columns': [get_column_letter(c) for c in range(1, sheet.max_column+1)]}
+                  'columns': [get_column_letter(c) for c in range(1, sheet.max_column+1)],
+                  'col_widths': col_widths, 'row_heights': row_heights}
         for book in (wb, values, old):
             book.close()
         return result
@@ -497,9 +633,17 @@ class Handler(BaseHTTPRequestHandler):
     def send(self, data, status=200, content_type='application/json; charset=utf-8', filename=None):
         if not isinstance(data, bytes):
             data = json.dumps(data, ensure_ascii=False, default=serial, allow_nan=False).encode('utf-8')
+        compressed = False
+        encodings = [part.strip().lower() for part in self.headers.get('Accept-Encoding', '').split(',')]
+        if len(data) > 1024 and 'gzip' in encodings and content_type.startswith(('application/json', 'text/')):
+            data = gzip.compress(data, compresslevel=1)
+            compressed = True
         self.send_response(status)
         self.send_header('Content-Type', content_type)
         self.send_header('Content-Length', str(len(data)))
+        self.send_header('Vary', 'Accept-Encoding')
+        if compressed:
+            self.send_header('Content-Encoding', 'gzip')
         self.send_header('Cache-Control', 'no-store')
         self.send_header('X-Content-Type-Options', 'nosniff')
         self.send_header('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'")
@@ -585,7 +729,7 @@ class Handler(BaseHTTPRequestHandler):
             length = int(self.headers.get('Content-Length', '0'))
             if not 0 < length <= 125 * 1024 * 1024:
                 raise ValueError('Dữ liệu tải lên quá lớn hoặc rỗng.')
-            payload = json.loads(self.rfile.read(length))
+            payload = parse_payload(self.headers.get('Content-Type', ''), self.rfile.read(length))
             if not isinstance(payload, dict):
                 raise ValueError('Dữ liệu yêu cầu không hợp lệ.')
             if self.path == '/api/jobs':

@@ -134,7 +134,29 @@ if (btnUseLocal) {
     updateFileInfo(state.config.local_input);
   });
 }
-function readFile(file){return new Promise((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve({name:file.name,data:reader.result.split(',')[1]});reader.onerror=()=>reject(new Error('Không đọc được file.'));reader.readAsDataURL(file);});}
+function uploadJob(options){
+  const form=new FormData();
+  form.append('options',JSON.stringify(options));
+  if(state.input)form.append('input',state.input);
+  if(state.template)form.append('template',state.template);
+  return new Promise((resolve,reject)=>{
+    const request=new XMLHttpRequest();
+    request.open('POST','/api/jobs');
+    request.responseType='json';
+    request.upload.onprogress=event=>{
+      if(!event.lengthComputable)return;
+      const percent=Math.round(event.loaded/event.total*100);
+      $('progress-message').textContent=percent<100?`Đang tải file lên… ${percent}%`:'Đã gửi file. Đang chờ máy chủ tiếp nhận…';
+      $('progress-count').textContent=`${(event.loaded/1024/1024).toFixed(1)} / ${(event.total/1024/1024).toFixed(1)} MB`;
+    };
+    request.onload=()=>{
+      if(request.status>=200&&request.status<300&&request.response){resolve(request.response);return;}
+      reject(new Error(request.response?.error || (request.status===413?'File vượt giới hạn tải lên của máy chủ.':'Máy chủ chưa tiếp nhận được file. Vui lòng thử lại.')));
+    };
+    request.onerror=()=>reject(new Error('Mất kết nối khi tải file lên. Vui lòng thử lại.'));
+    request.send(form);
+  });
+}
 $('process-button').addEventListener('click',async()=>{
   $('upload-error').hidden=true;
   try{
@@ -152,9 +174,7 @@ $('process-button').addEventListener('click',async()=>{
     const initialTrack=document.querySelector('.progress-track');
     if(initialTrack) initialTrack.classList.add('indeterminate');
     const payload={week,season,start,end,use_local:state.useLocal};
-    if(state.input)payload.input=await readFile(state.input);
-    if(state.template)payload.template=await readFile(state.template);
-    const job=await api('/api/jobs',payload);
+    const job=await uploadJob(payload);
     state.job=job;state.report=null;state.preview=null;
     await pollJob(job.id);
   }catch(error){showView('upload');$('upload-error').textContent=error.message;$('upload-error').hidden=false;}
@@ -249,6 +269,7 @@ async function loadPreview(focusAddress){
     $('workbook-name').textContent=result.file.name;
     $('workbook-meta').textContent=`${result.file.items} item · ${result.file.markets} thị trường · ${result.file.source_checks ? fmt.format(result.file.source_checks)+' đối chiếu nguồn' : 'Lịch nguồn: '+state.report.first_week+' → '+state.report.last_week}`;
     $('download-one').href=`/api/jobs/${state.job.id}/download?file=${state.file}`;
+    if($('excel-preview-download')) $('excel-preview-download').href=$('download-one').href;
     $('sheet-tabs').innerHTML=result.sheets.map((name,index)=>`<button role="tab" aria-selected="${index===state.sheet}" class="sheet-tab ${index===state.sheet?'selected':''}" data-sheet="${index}">${index===0?'▦ ':index===1?'▤ ':'▥ '}${escapeHTML(name)}</button>`).join('');
     renderGrid();renderProblems();renderAudit();
     if(focusAddress){focusCell(focusAddress);openCell(focusAddress);}
@@ -261,10 +282,131 @@ function renderGrid(){
   const data=state.preview,covered=new Set(),merges=new Map();
   for(const merge of data.merges){const [start,end]=merge.split(':').map(coords);merges.set(`${start.row},${start.col}`,{rows:end.row-start.row+1,cols:end.col-start.col+1});for(let r=start.row;r<=end.row;r++)for(let c=start.col;c<=end.col;c++)if(r!==start.row||c!==start.col)covered.add(`${r},${c}`);}
   let html='<table class="sheet-grid" aria-label="'+escapeHTML(data.sheet)+'"><colgroup><col class="index-col">'+data.columns.map((c,i)=>`<col class="${i===0?'label-col':'value-col'}">`).join('')+'</colgroup><thead><tr><th></th>'+data.columns.map(c=>`<th scope="col">${c}</th>`).join('')+'</tr></thead><tbody>';
-  data.rows.forEach((row,r)=>{html+=`<tr><td class="row-number">${r+1}</td>`;row.forEach((cell,c)=>{if(covered.has(`${r},${c}`))return;const merge=merges.get(`${r},${c}`);const header=(state.sheet===0&&r>=1&&r<8)||(state.sheet===1&&r>=8&&r<13);const classes=['data-cell',c===0?'label-cell':'',header?'header-cell':'',typeof cell.value==='number'?'numeric':'',cell.changed?'changed':'',cell.error?'error-cell':'',cell.formula?'has-formula':''];const text=cell.value===null?'':cellDisplay(cell);html+=`<td tabindex="0" role="button" data-address="${cell.address}" aria-label="${cell.address}: ${escapeHTML(text||'trống')}" class="${classes.join(' ')}" ${merge?`rowspan="${merge.rows}" colspan="${merge.cols}"`:''} title="${escapeHTML(cell.address+' · '+(cell.editable?'Nhấn để sửa':cell.formula?'Công thức tự tính':'Xem đối chiếu'))}">${escapeHTML(text)}</td>`;});html+='</tr>';});
+  data.rows.forEach((row,r)=>{
+    html+=`<tr><td class="row-number">${r+1}</td>`;
+    row.forEach((cell,c)=>{
+      if(covered.has(`${r},${c}`))return;
+      const merge=merges.get(`${r},${c}`);
+      const header=(state.sheet===0&&r>=1&&r<8)||(state.sheet===1&&r>=8&&r<13);
+      const classes=['data-cell',c===0?'label-cell':'',header?'header-cell':'',typeof cell.value==='number'?'numeric':'',cell.changed?'changed':'',cell.error?'error-cell':'',cell.formula?'has-formula':''];
+      const text=cell.value===null?'':cellDisplay(cell);
+      const inlineStyles=[];
+      if(cell.bg && cell.bg!=='#ffffff') inlineStyles.push(`background-color:${cell.bg}`);
+      if(cell.fg) inlineStyles.push(`color:${cell.fg}`);
+      const styleAttr=inlineStyles.length?` style="${inlineStyles.join(';')}"`:'';
+      html+=`<td tabindex="0" role="button" data-address="${cell.address}" aria-label="${cell.address}: ${escapeHTML(text||'trống')}" class="${classes.join(' ')}"${styleAttr} ${merge?`rowspan="${merge.rows}" colspan="${merge.cols}"`:''} title="${escapeHTML(cell.address+' · '+(cell.editable?'Nhấn để sửa':cell.formula?'Công thức tự tính':'Xem đối chiếu'))}">${escapeHTML(text)}</td>`;
+    });
+    html+='</tr>';
+  });
   $('grid-container').innerHTML=html+'</tbody></table>';
   $('grid-info').textContent=`${data.rows.length} dòng · ${data.columns.length} cột · Đã lưu${data.revision?' · Lần sửa '+data.revision:''}`;
 }
+
+let previewModalSheet = 0;
+async function openExcelPreview(sheetIdx){
+  if(sheetIdx === undefined) previewModalSheet = state.sheet;
+  else previewModalSheet = sheetIdx;
+  const dialog = $('excel-preview-dialog');
+  if(!dialog) return;
+  if(!state.preview || !state.preview.file){
+    toast('Chưa có dữ liệu để xem trước.', true);
+    return;
+  }
+  $('excel-preview-title').textContent = `Xem trước: ${state.preview.file.name}.xlsx`;
+  if($('excel-preview-download')) $('excel-preview-download').href = `/api/jobs/${state.job.id}/download?file=${state.file}`;
+  
+  $('excel-preview-tabs').innerHTML = state.preview.sheets.map((name, idx)=>
+    `<button role="tab" aria-selected="${idx===previewModalSheet}" class="sheet-tab ${idx===previewModalSheet?'selected':''}" data-prev-sheet="${idx}">
+       ${idx===0?'▦ ':idx===1?'▤ ':'▥ '}${escapeHTML(name)}
+     </button>`
+  ).join('');
+
+  dialog.showModal();
+  await renderExcelWysiwygGrid(previewModalSheet);
+}
+
+async function renderExcelWysiwygGrid(sheetIdx){
+  const container = $('excel-preview-grid');
+  container.innerHTML = '<div class="empty-state">Đang tải cấu trúc và định dạng Excel…</div>';
+  try {
+    const data = await api(`/api/jobs/${state.job.id}/preview?file=${state.file}&sheet=${sheetIdx}`);
+    const covered = new Set(), merges = new Map();
+    for (const merge of data.merges) {
+      const [start, end] = merge.split(':').map(coords);
+      merges.set(`${start.row},${start.col}`, { rows: end.row - start.row + 1, cols: end.col - start.col + 1 });
+      for (let r = start.row; r <= end.row; r++) {
+        for (let c = start.col; c <= end.col; c++) {
+          if (r !== start.row || c !== start.col) covered.add(`${r},${c}`);
+        }
+      }
+    }
+
+    let html = `<table class="wysiwyg-table" aria-label="${escapeHTML(data.sheet)}">`;
+    html += '<colgroup><col style="width: 42px;">';
+    data.columns.forEach((c) => {
+      const width = (data.col_widths && data.col_widths[c]) ? data.col_widths[c] : 85;
+      html += `<col style="width: ${width}px;">`;
+    });
+    html += '</colgroup><thead><tr><th></th>';
+    data.columns.forEach(c => {
+      html += `<th scope="col">${c}</th>`;
+    });
+    html += '</tr></thead><tbody>';
+
+    data.rows.forEach((row, r) => {
+      const rowHeight = (data.row_heights && data.row_heights[String(r + 1)]) ? `height: ${data.row_heights[String(r + 1)]}px;` : '';
+      html += `<tr style="${rowHeight}"><td class="wysiwyg-row-num">${r + 1}</td>`;
+      row.forEach((cell, c) => {
+        if (covered.has(`${r},${c}`)) return;
+        const merge = merges.get(`${r},${c}`);
+        const styles = [];
+        if (cell.bg) styles.push(`background-color: ${cell.bg}`);
+        if (cell.fg) styles.push(`color: ${cell.fg}`);
+        if (cell.bold) styles.push('font-weight: 700');
+        if (cell.italic) styles.push('font-style: italic');
+        if (cell.font_size) styles.push(`font-size: ${Math.max(10, Math.round(cell.font_size * 1.15))}px`);
+        if (cell.align) styles.push(`text-align: ${cell.align}`);
+        else if (typeof cell.value === 'number') styles.push('text-align: right');
+        if (cell.valign) styles.push(`vertical-align: ${cell.valign === 'center' ? 'middle' : cell.valign}`);
+        if (cell.wrap) styles.push('white-space: pre-wrap; word-break: break-word');
+        else styles.push('white-space: nowrap; text-overflow: ellipsis');
+
+        if (cell.borders) {
+          for (const [side, b] of Object.entries(cell.borders)) {
+            const width = b.style === 'double' ? '3px double' : (b.style === 'medium' || b.style === 'thick') ? '2px solid' : '1px solid';
+            styles.push(`border-${side}: ${width} ${b.color}`);
+          }
+        }
+
+        const styleAttr = styles.length ? ` style="${styles.join('; ')}"` : '';
+        const spanAttr = merge ? ` rowspan="${merge.rows}" colspan="${merge.cols}"` : '';
+        const text = cell.value === null ? '' : cellDisplay(cell);
+        html += `<td${spanAttr}${styleAttr} title="${escapeHTML(cell.address + (text ? ': ' + text : ''))}">${escapeHTML(text)}</td>`;
+      });
+      html += '</tr>';
+    });
+
+    html += '</tbody></table>';
+    container.innerHTML = html;
+    $('excel-preview-info').textContent = `Sheet: ${data.sheet.trim()} · ${data.rows.length} dòng × ${data.columns.length} cột`;
+  } catch (err) {
+    container.innerHTML = `<div class="empty-state">${escapeHTML(err.message)}</div>`;
+  }
+}
+
+if($('btn-preview-excel')) $('btn-preview-excel').addEventListener('click', () => openExcelPreview());
+if($('close-excel-preview')) $('close-excel-preview').addEventListener('click', () => $('excel-preview-dialog').close());
+if($('excel-preview-dialog')) $('excel-preview-dialog').addEventListener('click', e => {
+  if (e.target === $('excel-preview-dialog')) $('excel-preview-dialog').close();
+});
+if($('excel-preview-tabs')) $('excel-preview-tabs').addEventListener('click', async e => {
+  const btn = e.target.closest('[data-prev-sheet]');
+  if (!btn) return;
+  const idx = Number(btn.dataset.prevSheet);
+  previewModalSheet = idx;
+  document.querySelectorAll('#excel-preview-tabs .sheet-tab').forEach(b => b.classList.toggle('selected', b === btn));
+  await renderExcelWysiwygGrid(idx);
+});
 $('grid-container').addEventListener('click',e=>{const cell=e.target.closest('[data-address]');if(cell)openCell(cell.dataset.address);});
 $('grid-container').addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){const cell=e.target.closest('[data-address]');if(cell){e.preventDefault();openCell(cell.dataset.address);}}});
 function focusCell(address){const element=$('grid-container').querySelector(`[data-address="${address}"]`);if(!element)return;document.querySelectorAll('.selected-cell').forEach(el=>el.classList.remove('selected-cell'));element.classList.add('selected-cell');element.scrollIntoView({block:'center',inline:'center',behavior:'smooth'});}

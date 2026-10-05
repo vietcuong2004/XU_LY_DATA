@@ -159,12 +159,40 @@
       <div id="metrics" class="metrics"></div>
       <div class="review-workspace">
         <aside class="family-panel"><div class="family-panel-heading"><h2>Danh sách file</h2><span id="family-count" class="small-tag"></span></div><label class="search-box"><span>⌕</span><input id="family-search" placeholder="Tìm Family…" aria-label="Tìm Family"></label><div class="filter-row"><button class="chip active" data-filter="all">Tất cả</button><button class="chip" data-filter="warning">Cần xem</button><button class="chip" data-filter="edited">Đã sửa</button></div><div id="family-list" class="family-list"></div></aside>
-        <div class="workbook-panel"><div class="workbook-heading"><div class="excel-tile">X</div><div class="workbook-title"><h2 id="workbook-name"></h2><p id="workbook-meta"></p></div><a id="download-one" class="icon-button" title="Tải file Excel này" aria-label="Tải file Excel này">↧</a></div><div id="sheet-tabs" class="sheet-tabs" role="tablist" aria-label="Sheets"></div><div class="sheet-toolbar"><div><span class="legend green"></span>Khớp nguồn <span class="legend blue"></span>Đã thay đổi <span class="legend red"></span>Lỗi dữ liệu</div><button id="jump-warning" class="text-button">Xem điểm cần kiểm tra ↓</button></div><div id="grid-container" class="grid-container" tabindex="0" aria-label="Bảng dữ liệu Excel"><div class="empty-state">Chọn một Family để xem dữ liệu.</div></div><div class="grid-footer"><span id="grid-info"></span><span>Nhấn vào ô để xem hoặc sửa <span class="keycap">↵</span></span></div></div>
+        <div class="workbook-panel"><div class="workbook-heading"><div class="excel-tile">X</div><div class="workbook-title"><h2 id="workbook-name"></h2><p id="workbook-meta"></p></div><div class="workbook-actions"><button type="button" id="btn-preview-excel" class="button secondary compact" title="Xem trước file Excel khi tải xuống (màu sắc chữ, kích cỡ ô, màu ô...)"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg><span>Xem trước</span></button><a id="download-one" class="button primary compact" download title="Tải file Excel này" aria-label="Tải file này"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg><span>Tải file này</span></a></div></div><div id="sheet-tabs" class="sheet-tabs" role="tablist" aria-label="Sheets"></div><div class="sheet-toolbar"><div><span class="legend green"></span>Khớp nguồn <span class="legend blue"></span>Đã thay đổi <span class="legend red"></span>Lỗi dữ liệu</div><button id="jump-warning" class="text-button">Xem điểm cần kiểm tra ↓</button></div><div id="grid-container" class="grid-container" tabindex="0" aria-label="Bảng dữ liệu Excel"><div class="empty-state">Chọn một Family để xem dữ liệu.</div></div><div class="grid-footer"><span id="grid-info"></span><span>Nhấn vào ô để xem hoặc sửa <span class="keycap">↵</span></span></div></div>
       </div>
       <div class="bottom-panels"><section class="card check-panel"><div class="card-header"><div><h2>Những điểm cần kiểm tra</h2><p>Lỗi nguồn và tuần chưa hợp lệ trong Family đang chọn.</p></div><span id="problem-count" class="small-tag"></span></div><div id="problems" class="problem-list"></div></section><section class="card audit-panel"><div class="card-header"><div><h2>Lịch sử chỉnh sửa</h2><p>Giữ lại giá trị trước và sau mỗi lần lưu.</p></div><span class="audit-icon">↺</span></div><div id="audit-list" class="audit-list"></div></section></div>
     </section>
   </div>
 </main>
+<dialog id="excel-preview-dialog" class="excel-preview-dialog">
+  <div class="excel-preview-window">
+    <div class="excel-preview-header">
+      <div class="excel-preview-title-box">
+        <div class="excel-preview-icon">X</div>
+        <div>
+          <h2 id="excel-preview-title">Xem trước file Excel</h2>
+          <p id="excel-preview-sub">Mô phỏng chính xác màu sắc chữ, kích cỡ ô, màu nền, đường viền khi tải xuống</p>
+        </div>
+      </div>
+      <div class="excel-preview-tools">
+        <a id="excel-preview-download" class="button primary compact" download title="Tải file Excel này">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+          <span>Tải file này</span>
+        </a>
+        <button type="button" class="icon-button" id="close-excel-preview" aria-label="Đóng">✕</button>
+      </div>
+    </div>
+    <div id="excel-preview-tabs" class="sheet-tabs excel-preview-tabs" role="tablist" aria-label="Sheet tabs preview"></div>
+    <div class="excel-preview-body">
+      <div id="excel-preview-grid" class="excel-preview-grid"></div>
+    </div>
+    <div class="excel-preview-footer">
+      <span id="excel-preview-info">Bản xem trước trực quan (WYSIWYG)</span>
+      <span>Nhấn <kbd>Esc</kbd> hoặc nút ✕ để đóng</span>
+    </div>
+  </div>
+</dialog>
 <dialog id="cell-dialog" class="cell-dialog"><form id="edit-form"><div class="dialog-header"><div><span class="eyebrow">ĐỐI CHIẾU & CHỈNH SỬA</span><h2 id="cell-heading">Ô dữ liệu</h2></div><button type="button" class="icon-button" id="close-dialog" aria-label="Đóng">×</button></div><div id="cell-context" class="cell-context"></div><div class="comparison"><div><span>NGUỒN BAN ĐẦU</span><strong id="original-value"></strong></div><span>→</span><div><span>HIỆN TẠI</span><strong id="current-value"></strong></div></div><p class="comparison-help">Giá trị ban đầu của file được tạo từ nguồn, trước các chỉnh sửa trong giao diện.</p><div id="formula-info" class="formula-info" hidden></div><div id="edit-fields"><label id="new-value-label" for="new-value">Giá trị mới</label><input id="new-value" autocomplete="off"><p id="edit-hint" class="muted"></p><label for="edit-reason">Ghi chú chỉnh sửa <span class="optional">tùy chọn</span></label><textarea id="edit-reason" rows="2" placeholder="Ví dụ: cập nhật theo xác nhận mới…" maxlength="500"></textarea></div><p id="readonly-info" class="notice" hidden></p><div id="edit-error" class="error-box" role="alert" hidden></div><div class="dialog-actions"><button type="button" id="restore-cell" class="text-button">↺ Khôi phục giá trị gốc</button><button type="button" id="trace-cell" class="button secondary" hidden>Đến dữ liệu gốc</button><button type="submit" id="save-cell" class="button primary">Lưu & tính lại <span>✓</span></button></div></form></dialog>
 </body>
 </html>

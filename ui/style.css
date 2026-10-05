@@ -93,3 +93,26 @@ main{margin-left:0}.topbar{height:64px}.single-brand{font-size:23px;font-weight:
 .progress-stat-right .stat-highlight{font-size:13px;font-weight:600;color:#0f172a}
 .progress-footer-note{margin-top:18px;padding-top:14px;border-top:1px solid #f1f5f9;display:flex;align-items:center;justify-content:space-between;font-size:11.5px;color:#94a3b8}
 
+/* Workbook Header Actions & Preview Modal */
+.workbook-actions{display:flex;align-items:center;gap:10px;margin-left:auto}
+.workbook-actions .button{padding:7px 13px;font-size:11.5px;gap:7px;display:inline-flex;align-items:center;border-radius:6px}
+.excel-preview-dialog{border:0;border-radius:14px;padding:0;width:95vw;max-width:1450px;height:90vh;max-height:920px;box-shadow:0 25px 80px rgba(0,0,0,0.5);background:#ffffff;overflow:hidden}
+.excel-preview-dialog::backdrop{background:rgba(15,23,42,0.72);backdrop-filter:blur(5px)}
+.excel-preview-window{display:flex;flex-direction:column;height:100%;width:100%}
+.excel-preview-header{display:flex;align-items:center;justify-content:space-between;padding:14px 20px;border-bottom:1px solid var(--line);background:#fafbf9}
+.excel-preview-title-box{display:flex;align-items:center;gap:12px}
+.excel-preview-icon{width:32px;height:34px;background:#107C41;color:#ffffff;font-size:15px;font-weight:700;display:grid;place-items:center;border-radius:5px}
+.excel-preview-header h2{font-size:14px;font-weight:700;margin:0 0 2px;color:#1e293b}
+.excel-preview-header p{font-size:11px;color:#64748b;margin:0}
+.excel-preview-tools{display:flex;align-items:center;gap:10px}
+.excel-preview-tabs{padding:0 20px;background:#ffffff;border-bottom:1px solid var(--line);display:flex;gap:18px;overflow-x:auto}
+.excel-preview-body{flex:1;overflow:auto;background:#e2e8f0;padding:20px;display:flex;align-items:flex-start;justify-content:flex-start}
+.excel-preview-grid{background:#ffffff;box-shadow:0 4px 24px rgba(0,0,0,0.12);border:1px solid #cbd5e1;overflow:auto;max-width:100%;max-height:100%}
+.wysiwyg-table{border-collapse:collapse;font-family:Calibri,"Segoe UI",Arial,sans-serif;font-size:11px;table-layout:fixed;user-select:text}
+.wysiwyg-table th{background:#f1f5f9;color:#64748b;font-weight:600;font-size:10px;text-align:center;padding:5px 6px;border:1px solid #cbd5e1;position:sticky;top:0;z-index:3}
+.wysiwyg-table .wysiwyg-row-num{position:sticky;left:0;background:#f1f5f9;color:#64748b;font-weight:600;font-size:9.5px;text-align:center;width:40px;min-width:40px;border:1px solid #cbd5e1;z-index:2}
+.wysiwyg-table th:first-child{left:0;z-index:5}
+.wysiwyg-table td{border:1px solid #cbd5e1;padding:4px 8px;min-width:70px;line-height:1.35;vertical-align:middle;box-sizing:border-box}
+.excel-preview-footer{padding:10px 20px;background:#f8fafc;border-top:1px solid var(--line);display:flex;justify-content:space-between;align-items:center;font-size:11.5px;color:#64748b}
+kbd{padding:2px 5px;background:#ffffff;border:1px solid #cbd5e1;border-radius:4px;font-size:10px;font-family:inherit}
+
