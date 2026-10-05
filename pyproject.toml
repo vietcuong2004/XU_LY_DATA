@@ -1,0 +1,4 @@
+# Explicit entrypoint for the existing BaseHTTPRequestHandler application.
+# This resolves discovery only; see DEPLOYMENT.md for runtime requirements.
+[tool.vercel]
+entrypoint = "ui_server:Handler"
