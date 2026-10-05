@@ -22,13 +22,9 @@ Giao diện được phân chia thành **2 Tab nghiệp vụ trực quan**:
 
 #### Tab 1: "Tải file lên" (↥)
 1. **Chọn file nguồn (.xlsx):** Kéo thả hoặc bấm vào khung tải lên để chọn file Master (ví dụ: `2026 INTERNAL SCHEDULE FERRERO-WK40(LOG)-T.xlsx`). Nếu file đã nằm sẵn trong thư mục làm việc, có thể bấm nút *"Dùng file nguồn có sẵn"*.
-2. **File mẫu định dạng (Template):** Mặc định hệ thống tự nhận diện file mẫu trong thư mục `templates/` (ví dụ: `templates/BARBIE 2728 _Weekly shipment schedule 2728_WK39.xlsx`). Bạn có thể bấm *"Đổi mẫu"* nếu có template mới.
-3. **Tùy chọn xuất file:**
-   - *Mùa kế hoạch:* Mặc định `2728`.
-   - *Tuần báo cáo:* Mặc định `WK40`.
-   - *Khoảng tuần (tùy chọn):* Nhập `Từ tuần` (ví dụ `2026/42`) và `Đến tuần` (ví dụ `2027/52`) nếu chỉ muốn lọc giai đoạn nhất định; để trống nếu giữ toàn bộ lịch nguồn.
-4. **Bấm "Tạo các file Family →":** Hệ thống sẽ đọc dữ liệu, giải ô gộp, tính toán và bóc tách đồng loạt tất cả các Family. Quá trình hoàn tất sẽ **tự động chuyển ngay sang Tab 2**.
-5. **Mở lại kết quả gần đây:** Cho phép mở lại tức thì các phiên làm việc trước đó mà không cần tạo lại từ đầu.
+2. **Bấm "Tạo các file Family →":** Hệ thống tự dùng template BARBIE mặc định, giữ toàn bộ khoảng tuần trong nguồn và bóc tách tất cả các Family. Tuần đặt tên file được nhận từ `WKxx` trong tên file nguồn; nếu không tìm thấy thì dùng `WK40`. Mùa đặt tên file được nhận từ template, mặc định `2728`. Hai giá trị này chỉ dùng trong tên file kết quả.
+3. Quá trình hoàn tất sẽ **tự động chuyển ngay sang Tab 2**. Các số Family, item, thị trường và tuần hiển thị tại đây đều là kết quả đọc thật sau khi xử lý, không phải số minh họa.
+4. **Mở lại kết quả gần đây:** Cho phép mở lại tức thì các phiên làm việc trước đó mà không cần tạo lại từ đầu.
 
 #### Tab 2: "Sửa & xuất kết quả" (▦)
 1. **Xem tổng quan (Metrics):** Thống kê số lượng file Family đã tạo (kèm huy hiệu trên Tab), số tuần kế hoạch, số Family cần kiểm tra cảnh báo và số Family đã chỉnh sửa.

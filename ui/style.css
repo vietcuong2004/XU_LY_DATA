@@ -39,7 +39,7 @@ main{margin-left:0}.topbar{height:64px}.single-brand{font-size:23px;font-weight:
 .studio-section{margin-bottom:22px}
 .studio-title{font-size:16px;font-weight:700;color:#0f172a;margin-bottom:14px;display:flex;align-items:center}
 .studio-title-sub{font-size:13.5px;font-weight:400;color:#64748b;margin-left:6px}
-.upload-split-grid{display:grid;grid-template-columns:1.15fr 0.85fr;gap:20px;align-items:stretch}
+.upload-split-grid{display:grid;grid-template-columns:1fr;gap:20px;align-items:stretch}
 @media(max-width:768px){.upload-split-grid{grid-template-columns:1fr}.modern-card{padding:18px 16px}}
 .dropzone-modern{border:1.5px dashed #cbd5e1;border-radius:12px;background:#ffffff;padding:26px 18px;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;cursor:pointer;transition:all .2s ease;min-height:190px;position:relative}
 .dropzone-modern:hover,.dropzone-modern.dragging{border-color:#4f46e5;background:#f8fafc}
@@ -47,6 +47,7 @@ main{margin-left:0}.topbar{height:64px}.single-brand{font-size:23px;font-weight:
 .excel-icon-wrap{margin-bottom:10px;display:flex;align-items:center;justify-content:center}
 .dropzone-title{font-size:14.5px;font-weight:700;color:#1e293b;margin-bottom:4px}
 .dropzone-sub{font-size:12px;color:#64748b}
+.automatic-note{margin:12px 0 0;text-align:center;color:#64748b;font-size:11.5px}
 .file-pill{margin-top:14px;display:inline-flex;align-items:center;gap:8px;background:#ffffff;border:1px solid #cbd5e1;border-radius:8px;padding:6px 10px;max-width:92%;box-shadow:0 1px 3px rgba(0,0,0,0.06)}
 .file-pill-check{display:inline-grid;place-items:center;width:17px;height:17px;background:#16a34a;color:#ffffff;border-radius:50%;font-size:10px;font-weight:700;flex-shrink:0}
 .file-pill-text{font-size:12.5px;font-weight:600;color:#1e293b;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:210px}

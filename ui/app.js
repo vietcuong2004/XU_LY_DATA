@@ -1,6 +1,6 @@
 'use strict';
 const $ = id => document.getElementById(id);
-const state = {job:null, report:null, file:0, sheet:0, preview:null, filter:'all', search:'', input:null, template:null, useLocal:false, config:null, poll:null, cell:null, view:'upload', saving:false};
+const state = {job:null, report:null, file:0, sheet:0, preview:null, filter:'all', search:'', input:null, useLocal:false, config:null, poll:null, cell:null, view:'upload', saving:false};
 const fmt = new Intl.NumberFormat('vi-VN',{maximumFractionDigits:6});
 const escapeHTML = value => String(value ?? '').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const display = value => value === null || value === undefined || value === '' ? '—' : typeof value === 'number' ? fmt.format(value) : String(value);
@@ -83,24 +83,12 @@ function showView(view){
   }
 }
 
-function updateFileInfo(fileName){
-  if(!fileName) return;
+function outputOptions(fileName){
   const wkMatch = fileName.match(/(?:WK|Wk|wk)[-_ ]?(\d+)/i);
-  const yrMatch = fileName.match(/(20\d\d)/);
-  const weekNum = wkMatch ? Number(wkMatch[1]) : (Number($('report-week')?.value) || 40);
-  const yearNum = yrMatch ? Number(yrMatch[1]) : 2026;
-  
-  if(wkMatch && $('report-week')) $('report-week').value = weekNum;
-  
-  if($('info-week')) $('info-week').textContent = `WK${weekNum}`;
-  if($('info-year')) $('info-year').textContent = `${yearNum}`;
-  if($('info-families')) $('info-families').textContent = '26';
-  if($('info-destinations')) $('info-destinations').textContent = '78';
-  if($('info-items')) $('info-items').textContent = '312';
-  
-  const startWk = $('start-week')?.value?.trim() || `${yearNum}/${weekNum + 2}`;
-  const endWk = $('end-week')?.value?.trim() || `${yearNum + 1}/12`;
-  if($('info-range')) $('info-range').textContent = `${startWk} – ${endWk}`;
+  const week = wkMatch && Number(wkMatch[1]) >= 1 && Number(wkMatch[1]) <= 53 ? Number(wkMatch[1]) : 40;
+  const names = `${fileName} ${state.config?.template || ''}`;
+  const seasonMatch = names.match(/(?:^|[^0-9])(?!20\d{2})(\d{4})(?:[^0-9]|$)/);
+  return {week, season:seasonMatch?.[1] || '2728', start:'', end:'', use_local:state.useLocal};
 }
 
 function clearInputFile(e){
@@ -114,13 +102,6 @@ function clearInputFile(e){
   $('drop-input').classList.remove('loaded');
   $('process-button').disabled=true;
   $('upload-error').hidden=true;
-  
-  if($('info-week')) $('info-week').textContent='—';
-  if($('info-year')) $('info-year').textContent='—';
-  if($('info-families')) $('info-families').textContent='—';
-  if($('info-destinations')) $('info-destinations').textContent='—';
-  if($('info-items')) $('info-items').textContent='—';
-  if($('info-range')) $('info-range').textContent='—';
 }
 $('clear-input').addEventListener('click',clearInputFile);
 
@@ -135,35 +116,12 @@ function inputChanged(file){
   $('drop-input').classList.add('loaded');
   $('process-button').disabled=false;
   $('upload-error').hidden=true;
-  updateFileInfo(file.name);
 }
 $('input-file').addEventListener('change',e=>inputChanged(e.target.files[0]));
 $('drop-input').addEventListener('click',e=>{
   if(e.target.closest('#clear-input')||e.target.closest('#process-button')||e.target.closest('#file-pill'))return;
   if(!state.input&&!state.useLocal){$('input-file').click();}
 });
-$('template-file').addEventListener('change',e=>{
-  const file=e.target.files[0];
-  if(!file)return;
-  if(!file.name.toLowerCase().endsWith('.xlsx')||file.size>45*1024*1024)return toast('Chọn file mẫu .xlsx tối đa 45 MB.',true);
-  state.template=file;
-  $('template-name').textContent=`${file.name} (mẫu riêng)`;
-  if($('clear-template')) $('clear-template').hidden=false;
-  toast('Đã chọn mẫu riêng thành công.');
-});
-const btnClearTpl = $('clear-template');
-if(btnClearTpl){
-  btnClearTpl.addEventListener('click',e=>{
-    e.preventDefault();
-    e.stopPropagation();
-    state.template=null;
-    $('template-file').value='';
-    const defaultTpl=state.config?.template || 'BARBIE 2728 _Weekly shipment schedule 2728_WK39.xlsx';
-    $('template-name').textContent=defaultTpl;
-    btnClearTpl.hidden=true;
-    toast('Đã khôi phục về mẫu mặc định.');
-  });
-}
 for(const event of ['dragenter','dragover'])$('drop-input').addEventListener(event,e=>{e.preventDefault();$('drop-input').classList.add('dragging');});
 for(const event of ['dragleave','drop'])$('drop-input').addEventListener(event,e=>{e.preventDefault();$('drop-input').classList.remove('dragging');});
 $('drop-input').addEventListener('drop',e=>inputChanged(e.dataTransfer.files[0]));
@@ -177,7 +135,6 @@ if (btnUseLocal) {
     $('drop-input').classList.add('loaded');
     $('process-button').disabled=false;
     $('upload-error').hidden=true;
-    updateFileInfo(state.config.local_input);
   });
 }
 let currentUploadRequest = null;
@@ -245,7 +202,6 @@ function uploadJob(options){
   const form=new FormData();
   form.append('options',JSON.stringify(options));
   if(state.input)form.append('input',state.input);
-  if(state.template)form.append('template',state.template);
   return new Promise((resolve,reject)=>{
     const request=new XMLHttpRequest();
     currentUploadRequest=request;
@@ -275,14 +231,18 @@ function uploadJob(options){
     request.send(form);
   });
 }
+function outputOptions(fileName){
+  const wkMatch = (fileName || '').match(/(?:WK|Wk|wk)[-_ ]?(\d+)/i);
+  const week = Number($('report-week')?.value || wkMatch?.[1] || 40);
+  const season = ($('season')?.value || '2728').trim();
+  const start = ($('start-week')?.value || '').trim();
+  const end = ($('end-week')?.value || '').trim();
+  return {week, season, start, end, use_local: state.useLocal};
+}
 $('process-button').addEventListener('click',async()=>{
   $('upload-error').hidden=true;
   isCancelled=false;
   try{
-    const week=Number($('report-week').value),season=$('season').value.trim(),start=$('start-week').value.trim(),end=$('end-week').value.trim();
-    if(!Number.isInteger(week)||week<1||week>53)throw new Error('Tuần báo cáo phải từ 1 đến 53.');
-    if(!/^[a-zA-Z0-9_-]{1,20}$/.test(season))throw new Error('Mùa chỉ gồm chữ, số, dấu _ hoặc -.');
-    if([start,end].some(v=>v&&!/^\d{4}\/\d{1,2}$/.test(v)))throw new Error('Khoảng tuần cần dạng YYYY/WW, ví dụ 2026/42.');
     if(!state.input&&!state.useLocal)throw new Error('Hãy chọn file nguồn.');
     $('process-button').disabled=true;
     setExportState(false);
@@ -292,7 +252,7 @@ $('process-button').addEventListener('click',async()=>{
     $('progress-time').textContent='Đã chạy: 0 giây';
     const initialTrack=document.querySelector('.progress-track');
     if(initialTrack) initialTrack.classList.add('indeterminate');
-    const payload={week,season,start,end,use_local:state.useLocal};
+    const payload=outputOptions(state.input?.name || state.config?.local_input || '');
     const job=await uploadJob(payload);
     if(isCancelled) return;
     state.job=job;state.report=null;state.preview=null;
@@ -347,11 +307,6 @@ async function pollJob(id){
 }
 async function loadConfig(){
   state.config=await api('/api/config');
-  const defaultTpl = state.config?.template || 'templates/BARBIE 2728 _Weekly shipment schedule 2728_WK39.xlsx';
-  if(!state.template){
-    $('template-name').textContent=defaultTpl;
-    if($('clear-template')) $('clear-template').hidden=true;
-  }
   if($('use-local')) $('use-local').hidden=!state.config.local_input;
   if($('local-name')) $('local-name').textContent=state.config.local_input || '';
   $('history').innerHTML=state.config.jobs.length?state.config.jobs.map(job=>`<button class="history-item" data-job="${job.id}"><strong>WK${String(job.week).padStart(2,'0')} · ${escapeHTML(job.source)}</strong><small>${new Date(job.created).toLocaleDateString('vi-VN')} · ${job.status==='ready'?`${job.total} Family`:job.status==='error'?'Bị gián đoạn':'Đang xử lý'}</small></button>`).join(''):'<p class="muted">Chưa có phiên xử lý.</p>';
@@ -423,7 +378,7 @@ function renderGrid(){
       const classes=['data-cell',c===0?'label-cell':'',header?'header-cell':'',typeof cell.value==='number'?'numeric':'',cell.changed?'changed':'',cell.error?'error-cell':'',cell.formula?'has-formula':''];
       const text=cell.value===null?'':cellDisplay(cell);
       const inlineStyles=[];
-      if(cell.bg && cell.bg!=='#ffffff') inlineStyles.push(`background-color:${cell.bg}`);
+      if(cell.bg && cell.bg.toLowerCase() !== '#ffffff') inlineStyles.push(`background-color:${cell.bg}`);
       if(cell.fg) inlineStyles.push(`color:${cell.fg}`);
       const styleAttr=inlineStyles.length?` style="${inlineStyles.join(';')}"`:'';
       html+=`<td tabindex="0" role="button" data-address="${cell.address}" aria-label="${cell.address}: ${escapeHTML(text||'trống')}" class="${classes.join(' ')}"${styleAttr} ${merge?`rowspan="${merge.rows}" colspan="${merge.cols}"`:''} title="${escapeHTML(cell.address+' · '+(cell.editable?'Nhấn để sửa':cell.formula?'Công thức tự tính':'Xem đối chiếu'))}">${escapeHTML(text)}</td>`;

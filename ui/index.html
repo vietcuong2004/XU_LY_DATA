@@ -3,8 +3,8 @@
 <head>
   <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Shipment Studio · Excel workspace</title>
-  <link rel="stylesheet" href="/style.css?v=4">
-  <script src="/app.js?v=4" defer></script>
+  <link rel="stylesheet" href="/style.css?v=5">
+  <script src="/app.js?v=5" defer></script>
 </head>
 <body>
 <main>
@@ -39,11 +39,10 @@
     <details class="recent-sessions"><summary>Mở lại kết quả gần đây</summary><div id="history" class="history"><p class="muted">Chưa có phiên xử lý.</p></div></details>
     <section id="view-upload" class="page upload-page">
       <div class="modern-card upload-card">
-        <!-- 1. Upload Internal Schedule -->
+        <!-- Upload Internal Schedule -->
         <div class="studio-section">
-          <h2 class="studio-title">1. Upload Internal Schedule</h2>
+          <h2 class="studio-title">Chọn Internal Schedule</h2>
           <div class="upload-split-grid">
-            <!-- Left: Dashed upload area -->
             <div class="dropzone-modern" id="drop-input">
               <input id="input-file" type="file" accept=".xlsx" hidden>
               <div class="excel-icon-wrap">
@@ -66,62 +65,15 @@
               </div>
             </div>
 
-            <!-- Right: Info card -->
-            <div class="info-card-modern">
-              <h3 class="info-card-heading">Thông tin file</h3>
-              <div class="info-rows">
-                <div class="info-row"><span class="info-label">Tuần</span><span class="info-colon">:</span><strong class="info-val" id="info-week">—</strong></div>
-                <div class="info-row"><span class="info-label">Năm</span><span class="info-colon">:</span><strong class="info-val" id="info-year">—</strong></div>
-                <div class="info-row"><span class="info-label">Số Family phát hiện</span><span class="info-colon">:</span><strong class="info-val" id="info-families">—</strong></div>
-                <div class="info-row"><span class="info-label">Số Destination</span><span class="info-colon">:</span><strong class="info-val" id="info-destinations">—</strong></div>
-                <div class="info-row"><span class="info-label">Số Item</span><span class="info-colon">:</span><strong class="info-val" id="info-items">—</strong></div>
-                <div class="info-row"><span class="info-label">Khoảng tuần</span><span class="info-colon">:</span><strong class="info-val" id="info-range">—</strong></div>
-              </div>
-            </div>
           </div>
+          <p class="automatic-note">Tool tự dùng template BARBIE mặc định và giữ toàn bộ các tuần có trong file nguồn.</p>
         </div>
-
-        <!-- 2. Template output -->
-        <div class="studio-section">
-          <h2 class="studio-title">2. Template output <span class="studio-title-sub">(đã cấu hình sẵn)</span></h2>
-          <div class="template-card-modern">
-            <div class="template-left">
-              <svg width="40" height="40" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
-                <rect x="6" y="6" width="36" height="36" rx="6" fill="#107C41"/>
-                <rect x="23" y="11" width="15" height="26" rx="2" fill="#185C37" opacity="0.3"/>
-                <path d="M26 16H34M26 21H34M26 26H34M26 31H34" stroke="#ffffff" stroke-width="1.8" stroke-linecap="round"/>
-                <rect x="7" y="11" width="18" height="26" rx="3" fill="#107C41" filter="drop-shadow(0 2px 4px rgba(0,0,0,0.25))"/>
-                <path d="M12 19L20 29M20 19L12 29" stroke="#ffffff" stroke-width="2.5" stroke-linecap="round"/>
-              </svg>
-              <div>
-                <strong>Template output: BARBIE 2728 (mặc định)</strong>
-                <p id="template-name">templates/BARBIE 2728 _Weekly shipment schedule 2728_WK39.xlsx</p>
-              </div>
-            </div>
-            <div class="template-right">
-              <span class="ready-badge">✔ Đã sẵn sàng</span>
-              <label class="btn-change-tpl" for="template-file">Đổi mẫu<input id="template-file" type="file" accept=".xlsx" hidden></label>
-              <button type="button" id="clear-template" class="file-pill-clear" title="Đặt lại mẫu mặc định" aria-label="Đặt lại mẫu mặc định" hidden>✕</button>
-            </div>
-          </div>
-        </div>
-
-        <!-- Settings (Collapsible) -->
-        <details class="settings-modern">
-          <summary>Tùy chọn nâng cao (Mùa, Tuần báo cáo...) <span>⌄</span></summary>
-          <div class="settings-grid">
-            <label>Mùa kế hoạch<input id="season" value="2728" maxlength="20" placeholder="2728"></label>
-            <label>Tuần báo cáo<div class="input-prefix"><span>WK</span><input id="report-week" type="number" min="1" max="53" value="40"></div></label>
-            <label>Từ tuần <span class="optional">tùy chọn</span><input id="start-week" placeholder="2026/42" aria-label="Từ tuần"></label>
-            <label>Đến tuần <span class="optional">tùy chọn</span><input id="end-week" placeholder="2027/52" aria-label="Đến tuần"></label>
-          </div>
-        </details>
 
         <div id="upload-error" class="error-box" role="alert" hidden></div>
 
         <!-- Center CTA Button: Tiếp tục -> -->
         <div class="cta-center">
-          <button id="process-button" class="cta-button" type="button" disabled>Tiếp tục <span>→</span></button>
+          <button id="process-button" class="cta-button" type="button" disabled>Tạo các file Family <span>→</span></button>
         </div>
       </div>
     </section>
