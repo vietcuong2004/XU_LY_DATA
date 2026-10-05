@@ -120,7 +120,7 @@ class ExtractionTests(unittest.TestCase):
 class RealWorkbookTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.root = Path(__file__).parent
+        cls.root = Path(__file__).resolve().parent.parent
         report_path = cls.root / 'output_families' / 'validation_report.json'
         if not report_path.exists():
             raise unittest.SkipTest('Chạy process.py với file nguồn trước để kiểm tra tích hợp.')

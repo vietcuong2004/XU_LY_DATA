@@ -133,8 +133,8 @@ def create_job(payload):
     if payload.get('template'):
         template_name = save_upload(payload['template'], template)
     else:
-        default = ROOT / process.DEFAULT_TEMPLATE
-        if not default.exists():
+        default = process.find_default_template(ROOT)
+        if not default or not default.exists():
             raise ValueError('Hãy tải lên file mẫu BARBIE.')
         shutil.copy2(default, template)
         template_name = default.name
@@ -531,8 +531,9 @@ class Handler(BaseHTTPRequestHandler):
                 jobs = []
                 for p in sorted(STORE.glob('*/job.json'), key=lambda p: p.stat().st_mtime, reverse=True)[:12]:
                     jobs.append(json.loads(p.read_text(encoding='utf-8')))
+                default_tpl = process.find_default_template(ROOT)
                 return self.send({'local_input': local_input().name if local_input() else None,
-                                  'template': process.DEFAULT_TEMPLATE if (ROOT/process.DEFAULT_TEMPLATE).exists() else None,
+                                  'template': default_tpl.name if default_tpl and default_tpl.exists() else None,
                                   'jobs': jobs})
             match = re.fullmatch(r'/api/jobs/([a-f0-9]{32})(?:/(report|preview|download|zip))?', path)
             if not match:

@@ -26,8 +26,27 @@ from openpyxl.utils import get_column_letter as letter
 from openpyxl.workbook.properties import CalcProperties
 import pandas as pd
 from template_format import apply_template_format
+ROOT = Path(__file__).resolve().parent
 
-DEFAULT_TEMPLATE = 'BARBIE 2728 _Weekly shipment schedule 2728_WK39.xlsx'
+
+def find_default_template(parent: Path | None = None) -> Path:
+    filename = 'BARBIE 2728 _Weekly shipment schedule 2728_WK39.xlsx'
+    base = parent or ROOT
+    candidates = [
+        base / 'templates' / filename,
+        base / 'tempalates' / filename,
+        base / filename,
+        ROOT / 'templates' / filename,
+        ROOT / 'tempalates' / filename,
+        ROOT / filename,
+    ]
+    for c in candidates:
+        if c.is_file():
+            return c
+    return ROOT / 'templates' / filename
+
+
+DEFAULT_TEMPLATE = 'templates/BARBIE 2728 _Weekly shipment schedule 2728_WK39.xlsx'
 ERRORS = {'#REF!', '#VALUE!', '#N/A', '#DIV/0!', '#NAME?', '#NUM!', '#NULL!'}
 NUMBER_FORMAT = '#,##0.###;[Red]-#,##0.###;0'
 WEEK_RE = re.compile(r'^(\d{4})/(\d{1,2})$')
@@ -493,7 +512,7 @@ def week_arg(value):
 
 def run(args):
     source_path = Path(args.input).resolve()
-    template_path = Path(args.template).resolve() if args.template else source_path.parent / DEFAULT_TEMPLATE
+    template_path = Path(args.template).resolve() if args.template else find_default_template(source_path.parent)
     output = Path(args.output).resolve()
     if not template_path.is_file():
         raise ValueError(f'Không thấy mẫu: {template_path}. Dùng --template để chỉ định.')

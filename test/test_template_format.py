@@ -11,8 +11,8 @@ from template_format import apply_template_format,effective_column
 
 class TemplateFormatTests(unittest.TestCase):
     def setUp(self):
-        self.template = openpyxl.load_workbook(process.DEFAULT_TEMPLATE)
-        path = Path('output_families/BARBIE 2728 _Weekly shipment schedule 2728_WK40.xlsx')
+        self.template = openpyxl.load_workbook(process.find_default_template())
+        path = process.ROOT / 'output_families/BARBIE 2728 _Weekly shipment schedule 2728_WK40.xlsx'
         self.wb = openpyxl.load_workbook(path)
         self.addCleanup(self.template.close)
         self.addCleanup(self.wb.close)

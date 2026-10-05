@@ -22,7 +22,7 @@ Giao diện được phân chia thành **2 Tab nghiệp vụ trực quan**:
 
 #### Tab 1: "Tải file lên" (↥)
 1. **Chọn file nguồn (.xlsx):** Kéo thả hoặc bấm vào khung tải lên để chọn file Master (ví dụ: `2026 INTERNAL SCHEDULE FERRERO-WK40(LOG)-T.xlsx`). Nếu file đã nằm sẵn trong thư mục làm việc, có thể bấm nút *"Dùng file nguồn có sẵn"*.
-2. **File mẫu định dạng (Template):** Mặc định hệ thống tự nhận diện file mẫu `BARBIE 2728 _Weekly shipment schedule 2728_WK39.xlsx`. Bạn có thể bấm *"Đổi mẫu"* nếu có template mới.
+2. **File mẫu định dạng (Template):** Mặc định hệ thống tự nhận diện file mẫu trong thư mục `templates/` (ví dụ: `templates/BARBIE 2728 _Weekly shipment schedule 2728_WK39.xlsx`). Bạn có thể bấm *"Đổi mẫu"* nếu có template mới.
 3. **Tùy chọn xuất file:**
    - *Mùa kế hoạch:* Mặc định `2728`.
    - *Tuần báo cáo:* Mặc định `WK40`.
@@ -116,15 +116,21 @@ d:\XU_LY_DATA/
 │   ├── index.html                     # Bố cục 2 Tab (Tải file lên & Sửa/Xuất kết quả)
 │   ├── app.js                         # Logic xử lý giao diện, chuyển Tab, đối chiếu & sửa ô
 │   └── style.css                      # Hệ thống style giao diện Niigata Shipment Studio
+├── templates/                         # Thư mục chứa các file Excel mẫu định dạng
+│   ├── BARBIE 2728 _Weekly shipment schedule 2728_WK39.xlsx
+│   └── NATOONS WOODLAND_Weekly shipment schedule 2728_WK39.xlsx
+├── test/                              # Thư mục chứa toàn bộ mã nguồn kiểm thử tự động
+│   ├── __init__.py
+│   ├── test_ui.py                     # Bộ kiểm thử hồi quy cho API chỉnh sửa và audit
+│   ├── test_process.py                # Bộ kiểm thử lõi bóc tách dữ liệu
+│   └── test_template_format.py        # Bộ kiểm thử kế thừa định dạng template
 ├── ui_server.py                       # HTTP server xử lý API, nạp file, session & xuất ZIP
 ├── process.py                         # Thuật toán lõi bóc tách dữ liệu từ sheet SUM
 ├── template_format.py                 # Module sao chép và kế thừa định dạng từ Template mẫu
 ├── start_ui.bat                       # File nhấp đúp chạy nhanh UI trên Windows
 ├── requirements.txt                   # Danh sách thư viện Python (openpyxl, pandas)
 ├── .gitignore                         # File cấu hình bỏ qua file tạm, cache và build
-├── test_ui.py                         # Bộ kiểm thử hồi quy cho API chỉnh sửa và audit
-├── test_process.py                    # Bộ kiểm thử lõi bóc tách dữ liệu
-└── test_template_format.py            # Bộ kiểm thử kế thừa định dạng template
+└── 2026 INTERNAL SCHEDULE FERRERO-WK40(LOG)-T.xlsx # File kế hoạch nguồn
 ```
 
 ---
