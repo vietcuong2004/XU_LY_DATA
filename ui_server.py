@@ -362,9 +362,16 @@ def color_to_hex(color_obj):
                 return '#' + s
         elif ctype == 'theme' and getattr(color_obj, 'theme', None) is not None:
             theme_colors = [
-                'FFFFFF', '000000', 'EEECE1', '1F497D',
-                '4F81BD', 'C0504D', '9BBB59', '8064A2',
-                '4BACC6', 'F79646'
+                'FFFFFF',  # 0: lt1 (Light 1)
+                '000000',  # 1: dk1 (Dark 1)
+                'E7E6E6',  # 2: lt2 (Light 2)
+                '44546A',  # 3: dk2 (Dark 2)
+                '5B9BD5',  # 4: accent1 (Soft Blue - TOTAL header)
+                'ED7D31',  # 5: accent2 (Orange)
+                'A5A5A5',  # 6: accent3 (Gray)
+                'FFC000',  # 7: accent4 (Gold)
+                '4472C4',  # 8: accent5 (Royal Blue)
+                '70AD47'   # 9: accent6 (Fresh Green - KJ header)
             ]
             theme = int(color_obj.theme)
             tint = float(getattr(color_obj, 'tint', 0.0) or 0.0)

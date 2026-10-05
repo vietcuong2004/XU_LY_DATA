@@ -106,6 +106,8 @@ main{margin-left:0}.topbar{height:64px}.single-brand{font-size:23px;font-weight:
 .excel-preview-header p{font-size:11px;color:#64748b;margin:0}
 .excel-preview-tools{display:flex;align-items:center;gap:10px}
 .excel-preview-tabs{padding:0 20px;background:#ffffff;border-bottom:1px solid var(--line);display:flex;gap:18px;overflow-x:auto}
+.excel-preview-tabs .sheet-tab{padding:12px 14px;border-bottom:2px solid transparent;font-weight:500;color:#64748b;font-size:12px;cursor:pointer;background:none;border-top:0;border-left:0;border-right:0}
+.excel-preview-tabs .sheet-tab.selected{color:#107C41;border-bottom:2px solid #107C41;font-weight:700}
 .excel-preview-body{flex:1;overflow:auto;background:#e2e8f0;padding:20px;display:flex;align-items:flex-start;justify-content:flex-start}
 .excel-preview-grid{background:#ffffff;box-shadow:0 4px 24px rgba(0,0,0,0.12);border:1px solid #cbd5e1;overflow:auto;max-width:100%;max-height:100%}
 .wysiwyg-table{border-collapse:collapse;font-family:Calibri,"Segoe UI",Arial,sans-serif;font-size:11px;table-layout:fixed;user-select:text}

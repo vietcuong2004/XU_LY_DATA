@@ -384,11 +384,11 @@ async function renderExcelWysiwygGrid(sheetIdx){
         if (covered.has(`${r},${c}`)) return;
         const merge = merges.get(`${r},${c}`);
         const styles = [];
-        if (cell.bg) styles.push(`background-color: ${cell.bg}`);
-        if (cell.fg) styles.push(`color: ${cell.fg}`);
-        if (cell.bold) styles.push('font-weight: 700');
-        if (cell.italic) styles.push('font-style: italic');
-        if (cell.font_size) styles.push(`font-size: ${Math.max(10, Math.round(cell.font_size * 1.15))}px`);
+        if (cell.bg) styles.push(`background-color: ${cell.bg} !important`);
+        if (cell.fg) styles.push(`color: ${cell.fg} !important`);
+        if (cell.bold) styles.push('font-weight: 700 !important');
+        if (cell.italic) styles.push('font-style: italic !important');
+        if (cell.font_size) styles.push(`font-size: ${Math.max(10, Math.round(cell.font_size * 1.15))}px !important`);
         if (cell.align) styles.push(`text-align: ${cell.align}`);
         else if (typeof cell.value === 'number') styles.push('text-align: right');
         if (cell.valign) styles.push(`vertical-align: ${cell.valign === 'center' ? 'middle' : cell.valign}`);
@@ -398,7 +398,7 @@ async function renderExcelWysiwygGrid(sheetIdx){
         if (cell.borders) {
           for (const [side, b] of Object.entries(cell.borders)) {
             const width = b.style === 'double' ? '3px double' : (b.style === 'medium' || b.style === 'thick') ? '2px solid' : '1px solid';
-            styles.push(`border-${side}: ${width} ${b.color}`);
+            styles.push(`border-${side}: ${width} ${b.color} !important`);
           }
         }
 
@@ -428,7 +428,11 @@ if($('excel-preview-tabs')) $('excel-preview-tabs').addEventListener('click', as
   if (!btn) return;
   const idx = Number(btn.dataset.prevSheet);
   previewModalSheet = idx;
-  document.querySelectorAll('#excel-preview-tabs .sheet-tab').forEach(b => b.classList.toggle('selected', b === btn));
+  document.querySelectorAll('#excel-preview-tabs .sheet-tab').forEach(b => {
+    const isSel = (b === btn);
+    b.classList.toggle('selected', isSel);
+    b.setAttribute('aria-selected', isSel ? 'true' : 'false');
+  });
   await renderExcelWysiwygGrid(idx);
 });
 $('grid-container').addEventListener('click',e=>{const cell=e.target.closest('[data-address]');if(cell)openCell(cell.dataset.address);});
