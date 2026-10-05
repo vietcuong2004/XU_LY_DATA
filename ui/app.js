@@ -121,16 +121,19 @@ $('template-file').addEventListener('change',e=>{const file=e.target.files[0];if
 for(const event of ['dragenter','dragover'])$('drop-input').addEventListener(event,e=>{e.preventDefault();$('drop-input').classList.add('dragging');});
 for(const event of ['dragleave','drop'])$('drop-input').addEventListener(event,e=>{e.preventDefault();$('drop-input').classList.remove('dragging');});
 $('drop-input').addEventListener('drop',e=>inputChanged(e.dataTransfer.files[0]));
-$('use-local').addEventListener('click',()=>{
-  state.useLocal=true;state.input=null;
-  $('input-title').textContent=state.config.local_input;
-  const pill=$('file-pill');
-  if(pill) pill.hidden=false;
-  $('drop-input').classList.add('loaded');
-  $('process-button').disabled=false;
-  $('upload-error').hidden=true;
-  updateFileInfo(state.config.local_input);
-});
+const btnUseLocal = $('use-local');
+if (btnUseLocal) {
+  btnUseLocal.addEventListener('click',()=>{
+    state.useLocal=true;state.input=null;
+    $('input-title').textContent=state.config.local_input;
+    const pill=$('file-pill');
+    if(pill) pill.hidden=false;
+    $('drop-input').classList.add('loaded');
+    $('process-button').disabled=false;
+    $('upload-error').hidden=true;
+    updateFileInfo(state.config.local_input);
+  });
+}
 function readFile(file){return new Promise((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve({name:file.name,data:reader.result.split(',')[1]});reader.onerror=()=>reject(new Error('Không đọc được file.'));reader.readAsDataURL(file);});}
 $('process-button').addEventListener('click',async()=>{
   $('upload-error').hidden=true;
@@ -169,7 +172,8 @@ async function pollJob(id){
 async function loadConfig(){
   state.config=await api('/api/config');
   if(!state.template)$('template-name').textContent=state.config.template || 'Chưa có mẫu mặc định. Vui lòng chọn file mẫu.';
-  $('use-local').hidden=!state.config.local_input;$('local-name').textContent=state.config.local_input || '';
+  if($('use-local')) $('use-local').hidden=!state.config.local_input;
+  if($('local-name')) $('local-name').textContent=state.config.local_input || '';
   $('history').innerHTML=state.config.jobs.length?state.config.jobs.map(job=>`<button class="history-item" data-job="${job.id}"><strong>WK${String(job.week).padStart(2,'0')} · ${escapeHTML(job.source)}</strong><small>${new Date(job.created).toLocaleDateString('vi-VN')} · ${job.status==='ready'?`${job.total} Family`:job.status==='error'?'Bị gián đoạn':'Đang xử lý'}</small></button>`).join(''):'<p class="muted">Chưa có phiên xử lý.</p>';
 }
 $('history').addEventListener('click',async e=>{const button=e.target.closest('[data-job]');if(!button)return;try{const job=await api(`/api/jobs/${button.dataset.job}`);if(job.status==='ready')await openJob(job.id);else if(job.status==='error')toast(job.message,true);else{showView('progress');await pollJob(job.id);}}catch(error){toast(error.message,true);}});
