@@ -9,7 +9,9 @@ Repository có `ui_server.py` với lớp `Handler`, nhưng tên file này khôn
 entrypoint = "ui_server:Handler"
 ```
 
-Đưa file này lên cùng nhánh đang deploy. Root Directory trên Vercel phải là thư mục chứa `pyproject.toml`, `ui_server.py` và `requirements.txt`.
+`pyproject.toml` cũng phải có bảng `[project]` để Vercel chạy `uv lock`: tên dự án, phiên bản, `requires-python` và `dependencies`. Bản hiện tại chọn Python 3.12 và khai báo `openpyxl`, `pandas` với cùng giới hạn phiên bản như `requirements.txt`. `[tool.uv] package = false` xác định đây là ứng dụng chạy trực tiếp, không cần đóng gói thành thư viện.
+
+Đưa cả `pyproject.toml` và `uv.lock` lên cùng nhánh đang deploy, rồi Redeploy. Root Directory trên Vercel phải là thư mục chứa `pyproject.toml`, `ui_server.py` và `requirements.txt`. Khi đổi dependencies, cập nhật cả `requirements.txt` và chạy lại `uv lock`.
 
 Đây là sửa cấu hình phát hiện entrypoint, **chưa phải bản chuyển đổi ứng dụng sang Vercel hoàn chỉnh**. Chưa xác nhận bằng một lần build/deploy trên tài khoản Vercel.
 
