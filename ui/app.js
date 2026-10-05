@@ -1073,7 +1073,8 @@ function rawCell(cell){return String((state.file===-1 ? cell.formula : null) ?? 
 function updateEditToolbar(){
   const draft=currentDraft(), count=draft?.edits.size || 0;
   $('edit-workbook').hidden=Boolean(draft);
-  $('edit-workbook').disabled=!state.preview || (state.file===-1&&!state.preview.source_editing?.available);
+  $('edit-workbook').disabled=true;
+  $('edit-workbook').title='Chức năng chỉnh sửa tạm thời bị vô hiệu hóa';
   $('save-workbook').hidden=!draft;
   $('cancel-workbook').hidden=!draft;
   $('save-workbook').disabled=state.saving || !count;
@@ -1082,7 +1083,7 @@ function updateEditToolbar(){
   document.querySelector('.workbook-panel').classList.toggle('inline-editing',Boolean(draft));
   $('inline-edit-status').textContent=state.saving?'Đang xử lý. Chỉ công bố file mới khi lưu toàn bộ thay đổi thành công.':
     draft ? `${count} ô chưa lưu · Có thể chuyển sheet, dán nhiều ô từ Excel. Enter/Tab để chuyển ô. Dùng dấu chấm cho số thập phân.${state.file===-1?' Lưu sẽ tính lại nguồn và tạo lại mọi Family; phiên cũ được giữ trong lịch sử.':''}` :
-    state.file===-1&&!state.preview?.source_editing?.available ? state.preview?.source_editing?.message || 'Chưa kết nối Excel.' : 'Bấm Chỉnh sửa để nhập trực tiếp trên bảng. Chỉ bấm Lưu mới ghi file mới.';
+    'Chức năng chỉnh sửa tạm thời bị vô hiệu hóa.';
 }
 function stageCell(cell,raw,sheet=state.sheet){
   const draft=currentDraft();if(!draft||state.saving||!cell.editable)return;
@@ -1160,6 +1161,7 @@ $('grid-container').addEventListener('keydown',e=>{
   if(e.key==='Enter'||e.key==='F2'){const cell=e.target.closest('[data-address]');if(cell){e.preventDefault();openCell(cell.dataset.address);}}
 });
 $('edit-workbook').addEventListener('click',()=>{
+  return;
   if(!state.preview)return;
   workbookDrafts.set(draftKey(),{revision:state.preview.revision,edits:new Map()});
   updateEditToolbar();
