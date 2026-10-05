@@ -1,8 +1,16 @@
 # Triển khai Shipment Studio
 
+**Hướng triển khai hiện tại:** [CLOUD_SETUP.md](CLOUD_SETUP.md). Bộ tính Python và kho S3 thay cho máy Windows luôn bật. Các phần backend Windows dưới đây là phương án cũ/tùy chọn.
+
+## Cấu hình đang dùng: Vercel + backend Windows lưu phiên
+
+Làm theo [WINDOWS_BACKEND_SETUP.md](WINDOWS_BACKEND_SETUP.md). Đặt `SHIPMENT_BACKEND_URL` và `SHIPMENT_BACKEND_TOKEN` trên Vercel; máy Windows chạy `ui_server.py` với `SHIPMENT_API_TOKEN` và thư mục dữ liệu bền vững `SHIPMENT_DATA_DIR`. Toàn bộ API được chuyển tới Windows, gồm tạo phiên, tiến độ, đọc, sửa nguồn/Family và tải file. Vercel thiếu cấu hình sẽ báo 503, không tiếp tục tạo phiên trong `/tmp`.
+
+Phiên đã mất khỏi `/tmp` không thể khôi phục bằng URL; cần tải lại file nguồn sau khi backend đã kết nối. Mã đã được kiểm thử cục bộ, chưa có endpoint HTTPS để kiểm chứng trên bản deploy thật.
+
 ## Sửa mọi sheet với Microsoft Excel
 
-Xem [EXCEL_WORKER_SETUP.md](EXCEL_WORKER_SETUP.md). Vercel gọi máy Windows qua HTTPS với khóa riêng; Excel tính lại workbook rồi tool tạo lại mọi Family. Hiện chưa có endpoint HTTPS triển khai. Các điều kiện lưu trữ bền vững và giới hạn payload bên dưới vẫn cần xử lý để vận hành ổn định trên Vercel.
+Với backend Windows ở trên, Excel desktop tính lại ngay trên máy lưu phiên. [EXCEL_WORKER_SETUP.md](EXCEL_WORKER_SETUP.md) mô tả lựa chọn tách riêng máy tính Excel; chỉ cấu hình worker đó không giải quyết lưu trữ phiên trên Vercel.
 
 ## Lỗi Vercel không tìm thấy Python entrypoint
 
@@ -19,7 +27,7 @@ entrypoint = "ui_server:Handler"
 
 Đây là sửa cấu hình phát hiện entrypoint, **chưa phải bản chuyển đổi ứng dụng sang Vercel hoàn chỉnh**. Chưa xác nhận bằng một lần build/deploy trên tài khoản Vercel.
 
-## Những phần cần chuyển đổi trước khi dùng trên Vercel
+## Giới hạn của cách chạy xử lý trực tiếp trong Vercel Function (không dùng nữa)
 
 - `Handler.guard()` hiện chỉ nhận Host/Origin localhost. Domain triển khai cần được cho phép rõ ràng.
 - File nguồn, kết quả và lịch sử hiện được lưu trong `.ui_jobs` cạnh mã nguồn. Cần nơi lưu bền vững, dùng chung giữa các lần gọi function; chỉ chuyển sang `/tmp` không bảo đảm mở lại hay chỉnh sửa được phiên.

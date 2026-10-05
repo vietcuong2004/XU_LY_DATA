@@ -30,23 +30,27 @@ ROOT = Path(__file__).resolve().parent
 
 
 def find_default_template(parent: Path | None = None) -> Path:
-    filename = 'BARBIE 2728 _Weekly shipment schedule 2728_WK39.xlsx'
-    base = parent or ROOT
-    candidates = [
-        base / 'templates' / filename,
-        base / 'tempalates' / filename,
-        base / filename,
-        ROOT / 'templates' / filename,
-        ROOT / 'tempalates' / filename,
-        ROOT / filename,
+    filenames = [
+        'output_sample_1.xlsx',
+        'BARBIE 2728 _Weekly shipment schedule 2728_WK39.xlsx'
     ]
-    for c in candidates:
-        if c.is_file():
-            return c
-    return ROOT / 'templates' / filename
+    base = parent or ROOT
+    for filename in filenames:
+        candidates = [
+            base / 'templates' / filename,
+            base / 'tempalates' / filename,
+            base / filename,
+            ROOT / 'templates' / filename,
+            ROOT / 'tempalates' / filename,
+            ROOT / filename,
+        ]
+        for c in candidates:
+            if c.is_file():
+                return c
+    return ROOT / 'templates' / 'output_sample_1.xlsx'
 
 
-DEFAULT_TEMPLATE = 'templates/BARBIE 2728 _Weekly shipment schedule 2728_WK39.xlsx'
+DEFAULT_TEMPLATE = 'templates/output_sample_1.xlsx'
 ERRORS = {'#REF!', '#VALUE!', '#N/A', '#DIV/0!', '#NAME?', '#NUM!', '#NULL!'}
 NUMBER_FORMAT = '#,##0.###;[Red]-#,##0.###;0'
 WEEK_RE = re.compile(r'^(\d{4})/(\d{1,2})$')

@@ -163,7 +163,7 @@ class DesktopExcelTests(unittest.TestCase):
                 (folder/'baseline').mkdir(parents=True)
                 shutil.copy2(source, folder/'input.xlsx')
                 shutil.copy2(source, folder/'baseline/input.xlsx')
-                shutil.copy2(root/'templates'/'BARBIE 2728 _Weekly shipment schedule 2728_WK39.xlsx', folder/'template.xlsx')
+                shutil.copy2(process.find_default_template(root), folder/'template.xlsx')
                 ui.write_json(folder/'job.json', dict(id=job, status='ready', source=source.name, season='2728', week=40))
                 ui.write_json(folder/'review.json', dict(families=[], date='2026-10-06',
                     source_file=dict(id=-1, name=source.name, file='input.xlsx', is_source=True, edit_mode='full', revision=0, edits=[])))

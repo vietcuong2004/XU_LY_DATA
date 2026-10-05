@@ -21,7 +21,7 @@ class WorkerTransportTests(unittest.TestCase):
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
         self.thread.start()
         self.url = f'http://127.0.0.1:{self.server.server_port}'
-        env = patch.dict(os.environ, {'EXCEL_WORKER_URL': self.url, 'EXCEL_WORKER_TOKEN': 'private-test-token-at-least-32-chars'})
+        env = patch.dict(os.environ, {'SHIPMENT_CALCULATOR': 'excel', 'EXCEL_WORKER_URL': self.url, 'EXCEL_WORKER_TOKEN': 'private-test-token-at-least-32-chars'})
         env.start(); self.addCleanup(env.stop)
         self.addCleanup(self.stop)
 

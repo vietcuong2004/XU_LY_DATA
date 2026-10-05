@@ -1,6 +1,8 @@
 """Regression checks against the real template, including grouped column widths."""
 from copy import copy
 from pathlib import Path
+from types import SimpleNamespace
+import tempfile
 import unittest
 
 import openpyxl
@@ -10,10 +12,21 @@ from template_format import apply_template_format,effective_column
 
 
 class TemplateFormatTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        # Build a fresh fixture: user output folders may be removed at any time.
+        cls.generated = tempfile.TemporaryDirectory()
+        cls.addClassCleanup(cls.generated.cleanup)
+        report = process.run(SimpleNamespace(
+            input=str(process.ROOT/'templates/input_sample.xlsx'),
+            template=str(process.find_default_template()), output=cls.generated.name,
+            family=['BARBIE 2728'], season='2728', week=40, start_week=None,
+            end_week=None, date=None, strict=False, overwrite=False))
+        cls.output_path = Path(cls.generated.name)/report['families'][0]['file']
+
     def setUp(self):
         self.template = openpyxl.load_workbook(process.find_default_template())
-        path = process.ROOT / 'output_families/BARBIE 2728 _Weekly shipment schedule 2728_WK40.xlsx'
-        self.wb = openpyxl.load_workbook(path)
+        self.wb = openpyxl.load_workbook(self.output_path)
         self.addCleanup(self.template.close)
         self.addCleanup(self.wb.close)
 

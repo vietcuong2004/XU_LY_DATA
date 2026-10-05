@@ -12,7 +12,11 @@ const normalize = text => String(text).toLowerCase().normalize('NFD').replace(/[
 async function api(path, data){
   const response = await fetch(path, data === undefined ? {} : {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
   const result = await response.json();
-  if(!response.ok) throw new Error(result.error || 'Không thể kết nối. Vui lòng thử lại.');
+  if(!response.ok){
+    const error=new Error(result.error || 'Không thể kết nối. Vui lòng thử lại.');
+    error.code=result.code;error.status=response.status;
+    throw error;
+  }
   return result;
 }
 let toastTimer;
@@ -392,13 +396,36 @@ async function uploadJob(options){
   if(uploadFile){
     $('progress-message').textContent='Đang tải toàn bộ workbook để giữ đủ các sheet và công thức…';
   }
-  const form=new FormData();
-  form.append('options',JSON.stringify(options));
-  if(uploadFile)form.append('input',uploadFile,uploadFile.name);
+  let body;
+  if(uploadFile && state.config?.cloud_storage){
+    const ticket=await api('/api/uploads',{name:uploadFile.name,size:uploadFile.size});
+    if(isCancelled)throw new Error('ABORTED');
+    await new Promise((resolve,reject)=>{
+      const upload=new XMLHttpRequest();currentUploadRequest=upload;
+      upload.open('PUT',ticket.url);upload.setRequestHeader('Content-Type','application/octet-stream');
+      upload.upload.onprogress=e=>{
+        if(e.lengthComputable&&!isCancelled){
+          $('progress-message').textContent=`Đang tải file lên kho cloud… ${Math.round(e.loaded/e.total*100)}%`;
+          $('progress-count').textContent=`${(e.loaded/1048576).toFixed(1)} / ${(e.total/1048576).toFixed(1)} MB`;
+        }
+      };
+      upload.onload=()=>{currentUploadRequest=null;upload.status>=200&&upload.status<300?resolve():reject(new Error('Không tải được file lên kho cloud. Kiểm tra cấu hình CORS và quyền tải lên.'));};
+      upload.onerror=()=>{currentUploadRequest=null;reject(new Error('Mất kết nối tới kho cloud.'));};
+      upload.onabort=()=>{currentUploadRequest=null;reject(new Error('ABORTED'));};
+      upload.send(uploadFile);
+    });
+    if(isCancelled)throw new Error('ABORTED');
+    body=JSON.stringify({...options,upload_key:ticket.key});
+    $('progress-message').textContent='Đã tải file. Đang tạo các Family…';
+  }else{
+    body=new FormData();body.append('options',JSON.stringify(options));
+    if(uploadFile)body.append('input',uploadFile,uploadFile.name);
+  }
   return new Promise((resolve,reject)=>{
     const request=new XMLHttpRequest();
     currentUploadRequest=request;
     request.open('POST','/api/jobs');
+    if(typeof body==='string')request.setRequestHeader('Content-Type','application/json');
     request.setRequestHeader('Accept','application/x-ndjson');
     let latest=null,streamError=null;
     const decode=progressDecoder(job=>{latest=job;renderJobProgress(job);});
@@ -408,7 +435,7 @@ async function uploadJob(options){
       try{decode(request.responseText);}catch(error){streamError=error;}
     };
     request.upload.onprogress=event=>{
-      if(!event.lengthComputable || isCancelled)return;
+      if(!event.lengthComputable || isCancelled || typeof body==='string')return;
       const percent=Math.round(event.loaded/event.total*100);
       $('progress-message').textContent=percent<100?`Đang tải file lên… ${percent}%`:'Đã gửi file. Đang chờ máy chủ tiếp nhận…';
       $('progress-count').textContent=`${(event.loaded/1024/1024).toFixed(1)} / ${(event.total/1024/1024).toFixed(1)} MB`;
@@ -436,7 +463,7 @@ async function uploadJob(options){
       if(isCancelled){reject(new Error('ABORTED'));return;}
       reject(new Error('Mất kết nối khi tải file lên. Vui lòng thử lại.'));
     };
-    request.send(form);
+    request.send(body);
   });
 }
 async function startProcessing(){
@@ -853,9 +880,11 @@ async function loadPreview(focusAddress){
       $('excel-preview-download').setAttribute('download', displayName);
     }
     $('sheet-tabs').innerHTML=result.sheets.map((name,index)=>`<button role="tab" aria-selected="${index===state.sheet}" class="sheet-tab ${index===state.sheet?'selected':''}" data-sheet="${index}">${index===0?'▦ ':index===1?'▤ ':'▥ '}${escapeHTML(name)}</button>`).join('');
+    await restoreDraft();
+    if(request!==previewRequest)return;
     renderGrid();renderProblems();renderAudit();
     if(focusAddress){focusCell(focusAddress);openCell(focusAddress);}
-  }catch(error){$('grid-container').innerHTML=`<div class="empty-state">${escapeHTML(error.message)}</div>`;toast(error.message,true);}
+  }catch(error){$('grid-container').innerHTML=`<div class="empty-state">${escapeHTML(error.message)}</div>`;toast(error.message,true);return false;}
 }
 $('sheet-tabs').addEventListener('click',async e=>{const button=e.target.closest('[data-sheet]');if(!button)return;state.sheet=Number(button.dataset.sheet);await loadPreview();});
 function colIndex(text){return [...text].reduce((n,c)=>n*26+c.charCodeAt(0)-64,0)-1;}
@@ -1068,12 +1097,30 @@ if($('excel-preview-tabs')) $('excel-preview-tabs').addEventListener('click', as
 const workbookDrafts = new Map();
 function draftKey(){return state.job ? state.job.id+':'+state.file : '';}
 function currentDraft(){return workbookDrafts.get(draftKey());}
+function persistDraft(key=draftKey()){
+  const draft=workbookDrafts.get(key);
+  if(!window.shipmentDrafts)return;
+  const task=draft?window.shipmentDrafts.save(key,{revision:draft.revision,edits:[...draft.edits],savedResult:draft.savedResult}):window.shipmentDrafts.remove(key);
+  task.catch(()=>toast('Không lưu được bản nháp trên trình duyệt. Giữ trang mở và bấm Lưu để lưu lên máy chủ.',true));
+}
+async function restoreDraft(){
+  const key=draftKey();
+  if(!key||workbookDrafts.has(key)||!window.shipmentDrafts)return;
+  try{
+    const draft=await window.shipmentDrafts.read(key);
+    if(key!==draftKey()||!draft||workbookDrafts.has(key))return;
+    if(draft.revision!==state.preview.revision){toast('Có bản nháp từ phiên bản cũ. Dữ liệu đã đổi; chưa áp dụng bản nháp.',true);return;}
+    workbookDrafts.set(key,{...draft,edits:new Map(draft.edits)});
+    toast('Đã khôi phục bản nháp chưa lưu.');
+  }catch(error){toast('Không đọc được bản nháp trên trình duyệt.',true);}
+}
 function pendingEdit(sheet,address){return currentDraft()?.edits.get(sheet+':'+address);}
 function rawCell(cell){return String((state.file===-1 ? cell.formula : null) ?? cell.value ?? '');}
 function updateEditToolbar(){
   const draft=currentDraft(), count=draft?.edits.size || 0;
   $('edit-workbook').hidden=Boolean(draft);
-  $('edit-workbook').disabled=!state.preview || (state.file===-1&&!state.preview.source_editing?.available);
+  $('edit-workbook').disabled=true;
+  $('edit-workbook').title='Chức năng chỉnh sửa tạm thời bị vô hiệu hóa';
   $('save-workbook').hidden=!draft;
   $('cancel-workbook').hidden=!draft;
   $('save-workbook').disabled=state.saving || !count;
@@ -1082,10 +1129,11 @@ function updateEditToolbar(){
   document.querySelector('.workbook-panel').classList.toggle('inline-editing',Boolean(draft));
   $('inline-edit-status').textContent=state.saving?'Đang xử lý. Chỉ công bố file mới khi lưu toàn bộ thay đổi thành công.':
     draft ? `${count} ô chưa lưu · Có thể chuyển sheet, dán nhiều ô từ Excel. Enter/Tab để chuyển ô. Dùng dấu chấm cho số thập phân.${state.file===-1?' Lưu sẽ tính lại nguồn và tạo lại mọi Family; phiên cũ được giữ trong lịch sử.':''}` :
-    state.file===-1&&!state.preview?.source_editing?.available ? state.preview?.source_editing?.message || 'Chưa kết nối Excel.' : 'Bấm Chỉnh sửa để nhập trực tiếp trên bảng. Chỉ bấm Lưu mới ghi file mới.';
+    'Chức năng chỉnh sửa tạm thời bị vô hiệu hóa.';
 }
 function stageCell(cell,raw,sheet=state.sheet){
   const draft=currentDraft();if(!draft||state.saving||!cell.editable)return;
+  if(draft.savedResult){toast('Thay đổi đã được lưu. Bấm Lưu để mở lại kết quả trước khi sửa tiếp.');return;}
   const key=sheet+':'+cell.address;
   if(raw===rawCell(cell))draft.edits.delete(key);
   else {
@@ -1101,7 +1149,7 @@ function stageCell(cell,raw,sheet=state.sheet){
     }
     draft.edits.set(key,{sheet,cell:cell.address,value,value_type:kind,raw});
   }
-  updateEditToolbar();
+  persistDraft();updateEditToolbar();
 }
 function focusCell(address){
   const element=$('grid-container').querySelector(`[data-address="${address}"]`);if(!element)return;
@@ -1160,29 +1208,35 @@ $('grid-container').addEventListener('keydown',e=>{
   if(e.key==='Enter'||e.key==='F2'){const cell=e.target.closest('[data-address]');if(cell){e.preventDefault();openCell(cell.dataset.address);}}
 });
 $('edit-workbook').addEventListener('click',()=>{
+  return;
   if(!state.preview)return;
   workbookDrafts.set(draftKey(),{revision:state.preview.revision,edits:new Map()});
+  persistDraft();
   updateEditToolbar();
 });
 $('cancel-workbook').addEventListener('click',()=>{
   if(state.saving)return;
-  workbookDrafts.delete(draftKey());renderGrid();updateEditToolbar();
+  workbookDrafts.delete(draftKey());persistDraft();renderGrid();updateEditToolbar();
   toast('Đã hủy các thay đổi chưa lưu của file này.');
 });
 async function saveWorkbook(){
   document.activeElement?.blur();
   const draft=currentDraft();if(state.saving||!draft?.edits.size)return;
   const job=state.job.id,file=state.file,sheet=state.sheet,key=draftKey();
+  const previous={job:state.job,report:state.report,preview:state.preview,file,sheet};
   state.saving=true;updateEditToolbar();
   try{
     const edits=[...draft.edits.values()].map(({raw,...edit})=>edit);
-    const result=await api(`/api/jobs/${job}/edit/${file}`,{revision:draft.revision,edits});
-    workbookDrafts.delete(key);
+    const result=draft.savedResult || await api(`/api/jobs/${job}/edit/${file}`,{revision:draft.revision,edits});
+    draft.savedResult=result;persistDraft(key);
     if(state.job?.id!==job)return;
-    await openJob(result.new_job_id);
-    state.file=file;state.sheet=sheet;renderFamilies();await loadPreview();await loadConfig();
+    await openJob(result.new_job_id,'review');
+    state.file=file;state.sheet=sheet;renderFamilies();
+    if(await loadPreview()===false)throw new Error('Chưa mở được kết quả đã lưu. Bấm Lưu để thử mở lại.');
+    workbookDrafts.delete(key);persistDraft(key);
+    loadConfig().catch(error=>toast(error.message,true));
     toast('Đã lưu toàn bộ thay đổi vào phiên mới. Phiên cũ vẫn được giữ trong lịch sử.');
-  }catch(error){toast(error.message+' Các ô chưa lưu vẫn được giữ trên bảng.',true);}
+  }catch(error){Object.assign(state,previous);renderGrid();toast(error.message+' Bản nháp vẫn được giữ trên bảng.',true);}
   finally{state.saving=false;updateEditToolbar();}
 }
 $('save-workbook').addEventListener('click',saveWorkbook);
@@ -1394,11 +1448,31 @@ function initTableColumnResizer(){
 initWorkspaceResizer();
 initTableColumnResizer();
 
-loadConfig().then(async()=>{
+async function initializeWorkspace(){
+  await loadConfig();
   const params=new URLSearchParams(location.search),job=params.get('job');
   if(job&&/^[a-f0-9]{32}$/.test(job)){
     const cell=params.get('cell');
-    await openJob(job, cell ? 'review' : 'upload');
+    try{
+      await openJob(job, cell ? 'review' : 'upload');
+    }catch(error){
+      if(error.code!=='SESSION_NOT_FOUND')throw error;
+      // Remove only an expired session link, never an unsaved editing draft.
+      params.delete('job');params.delete('cell');
+      history.replaceState(null,'',location.pathname+(params.size?'?'+params.toString():''));
+      state.job=null;state.report=null;state.preview=null;
+      setExportState(false);showView('upload');
+      $('upload-error').textContent=error.message;$('upload-error').hidden=false;
+      return;
+    }
     if(cell&&/^[A-Z]+[1-9][0-9]*$/.test(cell))openCell(cell);
   }
-}).catch(error=>toast('Không kết nối được ứng dụng: '+error.message,true));
+}
+initializeWorkspace().catch(error=>{
+  showView('upload');setExportState(false);
+  $('upload-error').textContent=error.message;$('upload-error').hidden=false;
+  if(error.code==='BACKEND_NOT_CONFIGURED'||error.code==='BACKEND_CONFIG_INVALID'){
+    if($('process-button'))$('process-button').disabled=true;
+  }
+  toast(error.message,true);
+});

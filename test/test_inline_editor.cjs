@@ -73,3 +73,29 @@ test('source formula, literal text, and blank are distinct',()=>{
   e.ctx.stageCell(cell,'');
   assert.equal(e.run("pendingEdit(0,'A1').value_type"),'blank');
 });
+
+test('browser draft can be restored across sheets without saving to server',async()=>{
+  const e=editor();
+  const stored=new Map();
+  e.ctx.window.shipmentDrafts={save:async(k,v)=>stored.set(k,JSON.parse(JSON.stringify(v))),
+    read:async k=>stored.get(k),remove:async k=>stored.delete(k)};
+  e.ctx.stageCell({address:'B9',editable:'number',value:1},'12');
+  e.state.sheet=1;e.ctx.stageCell({address:'C3',editable:'number',value:1},'7');
+  e.run('workbookDrafts.clear()');
+  await e.ctx.restoreDraft();
+  assert.equal(e.run('currentDraft().edits.size'),2);
+  assert.equal(e.run("pendingEdit(0,'B9').raw"),'12');
+  assert.equal(e.requests.length,0);
+});
+
+test('failed opening saved result retains draft and retries without duplicate write',async()=>{
+  const e=editor();e.ctx.stageCell({address:'B9',editable:'number',value:1},'12');
+  e.ctx.openJob=async()=>{throw new Error('temporary connection failure');};
+  await e.ctx.saveWorkbook();
+  assert.equal(e.requests.length,1);
+  assert.equal(e.run('currentDraft().savedResult.new_job_id'),'saved');
+  e.ctx.openJob=async id=>{e.state.job={id};};
+  await e.ctx.saveWorkbook();
+  assert.equal(e.requests.length,1);
+  assert.equal(e.state.job.id,'saved');
+});

@@ -1,5 +1,7 @@
 # Vercel + máy Windows tính Excel
 
+> Nếu gặp lỗi mất phiên trên Vercel, dùng [WINDOWS_BACKEND_SETUP.md](WINDOWS_BACKEND_SETUP.md) để chuyển cả lưu trữ và xử lý sang Windows. Tài liệu này chỉ dành cho worker tính Excel riêng; worker cổng 8767 không lưu các phiên Shipment Studio.
+
 ## Trạng thái
 
 Mã nguồn đã có worker và luồng sửa mọi sheet. Chưa có địa chỉ HTTPS công khai của máy Windows, nên chưa kết nối với bản Vercel đang chạy.

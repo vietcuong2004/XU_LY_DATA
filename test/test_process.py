@@ -125,7 +125,13 @@ class RealWorkbookTests(unittest.TestCase):
         if not report_path.exists():
             raise unittest.SkipTest('Chạy process.py với file nguồn trước để kiểm tra tích hợp.')
         cls.report = json.loads(report_path.read_text(encoding='utf-8'))
-        cls.source = openpyxl.load_workbook(cls.report['input'], data_only=True)
+        source_path = Path(cls.report['input'])
+        if not source_path.exists():
+            alt = cls.root / 'templates' / 'input_sample.xlsx'
+            source_path = alt if alt.exists() else source_path
+        if not source_path.exists():
+            raise unittest.SkipTest('Không tìm thấy file nguồn để kiểm tra tích hợp.')
+        cls.source = openpyxl.load_workbook(source_path, data_only=True)
         cls.sheet = cls.source['SUM']
         cls.merged = {}
         for area in cls.sheet.merged_cells.ranges:

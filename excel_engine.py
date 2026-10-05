@@ -33,6 +33,9 @@ def local_available():
 
 
 def capability():
+    if os.environ.get('SHIPMENT_CALCULATOR', 'python') == 'python':
+        return {'available': True, 'engine': 'Python', 'message':
+                'Tính lại các sheet bằng Python: phép tính, so sánh, SUM, WEEKNUM. Công thức chưa hỗ trợ sẽ được báo khi lưu.'}
     remote = bool(os.environ.get('EXCEL_WORKER_URL') and os.environ.get('EXCEL_WORKER_TOKEN'))
     available = remote or local_available()
     return {'available': available, 'engine': 'Microsoft Excel (Windows worker)' if remote else 'Microsoft Excel' if available else None,
@@ -41,6 +44,9 @@ def capability():
 
 
 def edit_and_calculate(path, edits):
+    if os.environ.get('SHIPMENT_CALCULATOR', 'python') == 'python':
+        import formula_engine
+        return formula_engine.edit_and_calculate(Path(path), edits)
     if not capability()['available']:
         raise ValueError(capability()['message'])
     path = Path(path).resolve()

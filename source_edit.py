@@ -10,6 +10,7 @@ import uuid
 import openpyxl
 from openpyxl.cell.cell import MergedCell
 import excel_engine
+import cloud_store
 
 
 def cell_edit(sheet, address, raw, kind):
@@ -117,9 +118,11 @@ def apply(ui, job_id, report, entry, payload):
     new_folder.mkdir(parents=True)
     state = {**parent, 'id': new_id, 'created': ui.timestamp(), 'status': 'processing',
              'parent_job': job_id, 'completed': 0, 'total': 0,
-             'message': 'Excel đang tính lại toàn bộ workbook…'}
+             'message': 'Đang tính lại toàn bộ workbook…'}
     state.pop('superseded_by', None)
     ui.write_json(new_folder/'job.json', state)
+    if cloud_store.enabled():
+        cloud_store.progress(state)
     new_lock = ui.job_lock(new_id)
     new_lock.acquire()
     try:
@@ -131,7 +134,7 @@ def apply(ui, job_id, report, entry, payload):
                                start_week=ui.process.week_arg(parent['start']) if parent.get('start') else None,
                                end_week=ui.process.week_arg(parent['end']) if parent.get('end') else None,
                                date=date.fromisoformat(report['date']) if report.get('date') else None,
-                               strict=False, overwrite=False, source_name=parent['source'])
+                               strict=False, overwrite=False, source_name=parent['source'], defer_publish=True)
         ui.generate(new_id, args)
         if ui.read_job(new_id)['status'] != 'ready':
             raise ValueError(ui.read_job(new_id)['message'])
@@ -159,7 +162,11 @@ def apply(ui, job_id, report, entry, payload):
         source['status_label'] = 'edited' if changes else 'matched'
         updated['parent_job'] = job_id
         ui.write_json(new_folder/'review.json', updated)
+        if cloud_store.enabled():
+            cloud_store.publish(new_folder, ui.read_job(new_id))
         ui.update_job(job_id, superseded_by=new_id)
+        if cloud_store.enabled():
+            cloud_store.publish(folder, ui.read_job(job_id))
         return {**source, 'new_job_id': new_id}
     except Exception as exc:
         ui.update_job(new_id, status='error', message=str(exc))

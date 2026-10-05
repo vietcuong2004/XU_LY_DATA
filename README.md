@@ -1,5 +1,7 @@
 # Shipment Studio · Tool Bóc Tách Kế Hoạch Excel Theo Family
 
+Bản web mới dùng **Python để tính lại nguồn** và **S3 để lưu phiên bền vững**, không cần Excel desktop hoặc máy cá nhân luôn bật. Xem [hướng dẫn cấu hình cloud](CLOUD_SETUP.md). Có bản nháp IndexedDB và upload/download trực tiếp S3. Công thức chưa hỗ trợ sẽ báo lỗi và giữ phiên cũ.
+
 Công cụ tự động hóa bóc tách ma trận kế hoạch xuất hàng tổng thể (**Master Shipment Schedule - sheet `SUM`**) thành các file Excel chuẩn theo từng dòng sản phẩm (**Family**), phục vụ công tác điều hành sản xuất và logistics tại **Niigata**.
 
 ---

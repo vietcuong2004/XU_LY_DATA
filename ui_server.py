@@ -13,6 +13,7 @@ from datetime import date, datetime, timezone
 from email import policy
 from email.parser import BytesParser
 import gzip
+import hmac
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import io
 import json
@@ -37,10 +38,13 @@ from openpyxl.utils import get_column_letter, coordinate_to_tuple
 import process
 import excel_engine
 import source_edit
+import backend_proxy
+import cloud_store
 import sys
 
 ROOT = Path(__file__).resolve().parent
-STORE = Path('/tmp/.ui_jobs') if (os.environ.get('VERCEL') or not os.access(ROOT, os.W_OK)) else ROOT / '.ui_jobs'
+STORE = Path(os.environ['SHIPMENT_DATA_DIR']).expanduser().resolve() if os.environ.get('SHIPMENT_DATA_DIR') else (
+    Path('/tmp/.ui_jobs') if (os.environ.get('VERCEL') or not os.access(ROOT, os.W_OK)) else ROOT / '.ui_jobs')
 STORE.mkdir(parents=True, exist_ok=True)
 POOL = ThreadPoolExecutor(max_workers=1)
 LOCKS = {}
@@ -64,12 +68,18 @@ def write_json(path, data):
     temp.replace(path)
 
 
+class SessionNotFound(ValueError):
+    pass
+
+
 def directory(job_id):
     if not re.fullmatch(r'[a-f0-9]{32}', job_id):
         raise ValueError('Mã phiên không hợp lệ.')
     folder = STORE / job_id
     if not (folder / 'job.json').exists():
-        raise ValueError('Không tìm thấy phiên xử lý.')
+        if cloud_store.enabled() and cloud_store.restore(job_id, folder):
+            return folder
+        raise SessionNotFound('Phiên xử lý không còn trong kho lưu trữ. Hãy chọn lại file nguồn để tạo phiên mới; các thay đổi chưa lưu chưa được áp dụng.')
     return folder
 
 
@@ -79,6 +89,10 @@ def job_lock(job_id):
 
 
 def read_job(job_id):
+    if cloud_store.enabled() and not (STORE/job_id/'job.json').exists():
+        remote = cloud_store.read(job_id)
+        if remote and remote.get('status') != 'ready':
+            return remote
     return json.loads((directory(job_id) / 'job.json').read_text(encoding='utf-8'))
 
 
@@ -87,12 +101,22 @@ def update_job(job_id, **kwargs):
         state = read_job(job_id)
         state.update(kwargs)
         write_json(directory(job_id) / 'job.json', state)
+        if cloud_store.enabled():
+            cloud_store.progress(state)
     return state
 
 
 def local_input():
-    return next((p for p in ROOT.glob('*.xlsx') if not p.name.startswith('~$')
-                 and 'INTERNAL SCHEDULE' in p.name.upper()), None)
+    for folder in (ROOT / 'templates', ROOT):
+        if not folder.exists():
+            continue
+        for p in sorted(folder.glob('*.xlsx')):
+            if p.name.startswith('~$'):
+                continue
+            upper = p.name.upper()
+            if 'INPUT_SAMPLE' in upper or 'INTERNAL SCHEDULE' in upper:
+                return p
+    return None
 
 
 def save_upload(upload, path, fallback_name=None):
@@ -155,6 +179,10 @@ def parse_payload(content_type, raw):
 
 
 def create_job(payload, on_progress=None):
+    if payload.get('upload_key'):
+        if not cloud_store.enabled():
+            raise ValueError('Kho cloud chưa được cấu hình.')
+        payload = {**payload, 'input': cloud_store.get_upload(payload['upload_key'], payload.get('original_filename', 'input.xlsx'))}
     week = int(payload.get('week', 40))
     season = str(payload.get('season', '2728')).strip()
     if not 1 <= week <= 53 or not re.fullmatch(r'[A-Za-z0-9_-]{1,20}', season):
@@ -189,6 +217,8 @@ def create_job(payload, on_progress=None):
              'template': template_name, 'season': season, 'week': week, 'start': payload.get('start', ''),
              'end': payload.get('end', ''), 'completed': 0, 'total': 0, 'message': 'Đang chờ xử lý…'}
     write_json(folder / 'job.json', state)
+    if cloud_store.enabled():
+        cloud_store.progress(state)
     args = SimpleNamespace(input=str(source), template=str(template), output=str(folder/'files'),
                            family=None, season=season, week=week, start_week=start, end_week=end,
                            date=None, strict=False, overwrite=False, source_name=source_name)
@@ -196,7 +226,7 @@ def create_job(payload, on_progress=None):
         on_progress(state)
         generate(job_id, args, on_progress=on_progress)
         return read_job(job_id)
-    if os.environ.get('VERCEL'):
+    if os.environ.get('VERCEL') or cloud_store.enabled():
         # A plain background thread may be suspended after a function responds.
         # Finish within this invocation rather than leave polling stuck forever.
         generate(job_id, args)
@@ -267,6 +297,11 @@ def generate(job_id, args, on_progress=None):
             publish(checked=index + 1, message=f'Đã đối chiếu {index + 1}/{len(report["families"])} file')
         source_values.close()
         write_json(folder/'review.json', report)
+        if cloud_store.enabled() and not getattr(args, 'defer_publish', False):
+            final = {**read_job(job_id), 'status': 'ready', 'total': len(report['families']),
+                     'completed': len(report['families']), 'message': 'Đã tạo và lưu trên cloud.'}
+            write_json(folder/'job.json', final)
+            cloud_store.publish(folder, final)
         publish(status='ready', total=len(report['families']), completed=len(report['families']),
                    message='Đã tạo xong. Bạn có thể kiểm tra và chỉnh sửa.')
     except Exception as exc:
@@ -899,6 +934,8 @@ def apply_batch(job_id, file_id, payload):
                         revision = result['revision']
                 finally:
                     workbook.close()
+                if cloud_store.enabled():
+                    cloud_store.publish(target, read_job(new_id))
                 return {**result, 'new_job_id': new_id}
             except Exception as exc:
                 update_job(new_id, status='error', message=str(exc))
@@ -990,6 +1027,16 @@ class Handler(BaseHTTPRequestHandler):
             super().log_message(fmt, *args)
 
     def send(self, data, status=200, content_type='application/json; charset=utf-8', filename=None):
+        if filename and isinstance(data, bytes) and cloud_store.enabled():
+            url = cloud_store.download(data, filename, content_type)
+            self.send_response(303)
+            if getattr(self, 'workspace_cookie', None):
+                self.send_header('Set-Cookie', self.workspace_cookie)
+            self.send_header('Location', url)
+            self.send_header('Cache-Control', 'no-store')
+            self.send_header('Content-Length', '0')
+            self.end_headers()
+            return
         if not isinstance(data, bytes):
             data = json.dumps(data, ensure_ascii=False, default=serial, allow_nan=False).encode('utf-8')
         compressed = False
@@ -998,6 +1045,8 @@ class Handler(BaseHTTPRequestHandler):
             data = gzip.compress(data, compresslevel=1)
             compressed = True
         self.send_response(status)
+        if getattr(self, 'workspace_cookie', None):
+            self.send_header('Set-Cookie', self.workspace_cookie)
         self.send_header('Content-Type', content_type)
         self.send_header('Content-Length', str(len(data)))
         self.send_header('Vary', 'Accept-Encoding')
@@ -1005,13 +1054,24 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header('Content-Encoding', 'gzip')
         self.send_header('Cache-Control', 'no-store')
         self.send_header('X-Content-Type-Options', 'nosniff')
-        self.send_header('Content-Security-Policy', "default-src 'self'; script-src 'self'; worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'")
+        try:
+            uploads = ' '+cloud_store.upload_origin() if cloud_store.enabled() else ''
+        except ValueError:
+            uploads = ''
+        self.send_header('Content-Security-Policy', "default-src 'self'; script-src 'self'; worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'"+uploads+"; frame-ancestors 'none'")
         if filename:
             self.send_header('Content-Disposition', "attachment; filename*=UTF-8''"+quote(filename))
         self.end_headers()
         self.wfile.write(data)
 
     def guard(self):
+        if cloud_store.enabled():
+            cloud_store.bind_workspace(self)
+        token = os.environ.get('SHIPMENT_API_TOKEN', '')
+        if token and self.path.startswith('/api/'):
+            if len(token) < 32 or not hmac.compare_digest(self.headers.get('Authorization', ''), 'Bearer ' + token):
+                raise PermissionError('Không có quyền truy cập máy xử lý. Kiểm tra khóa kết nối phía máy chủ.')
+            return
         host = self.headers.get('Host', '').split(':')[0].lower()
         if host in {'127.0.0.1', 'localhost'}:
             pass
@@ -1026,6 +1086,8 @@ class Handler(BaseHTTPRequestHandler):
         origin = self.headers.get('Origin')
         if origin:
             parsed_origin = urlparse(origin)
+            if os.environ.get('VERCEL') and parsed_origin.netloc != self.headers.get('Host', ''):
+                raise PermissionError('Nguồn yêu cầu không được phép.')
             origin_host = (parsed_origin.hostname or '').lower()
             if origin_host not in {'127.0.0.1', 'localhost'} and not origin_host.endswith('.vercel.app') and not os.environ.get('VERCEL'):
                 allowed_env = os.environ.get('ALLOWED_HOSTS', '')
@@ -1036,11 +1098,14 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         try:
             self.guard()
+            if backend_proxy.forward_api(self):
+                return
             parsed = urlparse(self.path)
             path = parsed.path
             query = parse_qs(parsed.query)
             static = {'/': ('index.html', 'text/html; charset=utf-8'),
                       '/app.js': ('app.js', 'text/javascript; charset=utf-8'),
+                      '/drafts.js': ('drafts.js', 'text/javascript; charset=utf-8'),
                       '/fflate.js': ('vendor/fflate.min.js', 'text/javascript; charset=utf-8'),
                       '/source_optimizer.js': ('source_optimizer.js', 'text/javascript; charset=utf-8'),
                       '/style.css': ('style.css', 'text/css; charset=utf-8')}
@@ -1051,16 +1116,25 @@ class Handler(BaseHTTPRequestHandler):
                 jobs = []
                 for p in sorted(STORE.glob('*/job.json'), key=lambda p: p.stat().st_mtime, reverse=True)[:12]:
                     jobs.append(json.loads(p.read_text(encoding='utf-8')))
+                if cloud_store.enabled():
+                    jobs = cloud_store.list_jobs()[:12]
                 default_tpl = process.find_default_template(ROOT)
                 tpl_name = default_tpl.name if default_tpl and default_tpl.exists() else 'BARBIE 2728 _Weekly shipment schedule 2728_WK39.xlsx'
                 return self.send({'local_input': local_input().name if local_input() else None,
                                   'template': tpl_name,
-                                  'jobs': jobs})
+                                  'cloud_storage': cloud_store.enabled(), 'jobs': jobs})
             match = re.fullmatch(r'/api/jobs/([a-f0-9]{32})(?:/(report|preview|download|zip))?', path)
             if not match:
                 return self.send({'error': 'Không tìm thấy đường dẫn.'}, 404)
             job_id, action = match.groups()
             with job_lock(job_id):
+                if cloud_store.enabled() and not action:
+                    remote = cloud_store.read(job_id)
+                    if remote is None:
+                        raise SessionNotFound('Phiên không còn trong kho cloud. Hãy tải lại file nguồn.')
+                    return self.send(remote)
+                if cloud_store.enabled() and not cloud_store.restore(job_id, STORE/job_id):
+                    raise SessionNotFound('Phiên không còn trong kho cloud. Hãy tải lại file nguồn.')
                 if not action:
                     return self.send(read_job(job_id))
                 report = get_report(job_id)
@@ -1092,23 +1166,38 @@ class Handler(BaseHTTPRequestHandler):
                                 archive.write(family_path, arcname=entry['file'])
                     return self.send(buffer.getvalue(), content_type='application/zip',
                                      filename=f'Families_{read_job(job_id)["season"]}_WK{read_job(job_id)["week"]:02d}.zip')
+        except SessionNotFound as exc:
+            self.send({'error': str(exc), 'code': 'SESSION_NOT_FOUND'}, 404)
+        except PermissionError as exc:
+            self.send({'error': str(exc), 'code': 'BACKEND_UNAUTHORIZED'}, 401)
         except (ValueError, KeyError, IndexError, OSError) as exc:
             self.send({'error': str(exc)}, 400)
+        except Exception:
+            self.send({'code': 'CLOUD_STORAGE_ERROR', 'error': 'Không truy cập được kho cloud. Kiểm tra cấu hình và quyền S3; dữ liệu đã lưu vẫn được giữ.'}, 503)
 
     def do_POST(self):
         try:
             self.guard()
+            if backend_proxy.forward_api(self):
+                return
             length = int(self.headers.get('Content-Length', '0'))
             if not 0 < length <= 125 * 1024 * 1024:
                 raise ValueError('Dữ liệu tải lên quá lớn hoặc rỗng.')
             payload = parse_payload(self.headers.get('Content-Type', ''), self.rfile.read(length))
             if not isinstance(payload, dict):
                 raise ValueError('Dữ liệu yêu cầu không hợp lệ.')
+            if self.path == '/api/uploads':
+                if not cloud_store.enabled():
+                    raise ValueError('Kho cloud chưa được cấu hình.')
+                return self.send(cloud_store.sign_upload(payload.get('name'), payload.get('size')))
             if self.path == '/api/jobs':
                 if 'application/x-ndjson' in self.headers.get('Accept', ''):
                     return self.stream_job(payload)
                 return self.send(create_job(payload), 202)
             if self.path == '/api/jobs/clear':
+                if cloud_store.enabled():
+                    for job in cloud_store.list_jobs():
+                        cloud_store.delete(job['id'])
                 deleted = 0
                 for p in list(STORE.glob('*')):
                     if p.is_dir():
@@ -1118,18 +1207,31 @@ class Handler(BaseHTTPRequestHandler):
             match_del = re.fullmatch(r'/api/jobs/([a-f0-9]{32})/delete', self.path)
             if match_del:
                 job_id = match_del[1]
+                if cloud_store.enabled():
+                    cloud_store.delete(job_id)
                 folder = STORE / job_id
                 if folder.exists():
                     shutil.rmtree(folder, ignore_errors=True)
                 return self.send({'success': True, 'id': job_id})
             match = re.fullmatch(r'/api/jobs/([a-f0-9]{32})/edit/(-?[0-9]+)', self.path)
             if match:
-                if 'edits' in payload:
-                    return self.send(apply_batch(match[1], int(match[2]), payload))
-                return self.send(apply_edit(match[1], int(match[2]), payload))
+                job_id = match[1]
+                with job_lock(job_id), cloud_store.edit_lock(job_id):
+                    if cloud_store.enabled() and not cloud_store.restore(job_id, STORE/job_id):
+                        raise SessionNotFound('Phiên không còn trong kho cloud. Bản nháp chưa được lưu.')
+                    # All public edits create an immutable child generation.
+                    if 'edits' not in payload:
+                        payload = {'revision': payload.get('revision'), 'edits': [payload]}
+                    return self.send(apply_batch(job_id, int(match[2]), payload))
             self.send({'error': 'Không tìm thấy đường dẫn.'}, 404)
+        except SessionNotFound as exc:
+            self.send({'error': str(exc), 'code': 'SESSION_NOT_FOUND'}, 404)
+        except PermissionError as exc:
+            self.send({'error': str(exc), 'code': 'BACKEND_UNAUTHORIZED'}, 401)
         except (ValueError, TypeError, KeyError, IndexError, OSError, argparse.ArgumentTypeError) as exc:
             self.send({'error': str(exc)}, 400)
+        except Exception:
+            self.send({'code': 'CLOUD_STORAGE_ERROR', 'error': 'Không lưu được lên kho cloud. Kiểm tra kết nối và quyền S3 rồi thử lại; bản nháp vẫn được giữ.'}, 503)
 
     def stream_job(self, payload):
         """Keep the invocation alive and flush real progress as each step completes."""
@@ -1143,6 +1245,8 @@ class Handler(BaseHTTPRequestHandler):
             try:
                 if not started:
                     self.send_response(200)
+                    if getattr(self, 'workspace_cookie', None):
+                        self.send_header('Set-Cookie', self.workspace_cookie)
                     self.send_header('Content-Type', 'application/x-ndjson; charset=utf-8')
                     self.send_header('Cache-Control', 'no-store, no-transform')
                     self.send_header('X-Accel-Buffering', 'no')
@@ -1166,7 +1270,12 @@ class Handler(BaseHTTPRequestHandler):
     def do_DELETE(self):
         try:
             self.guard()
+            if backend_proxy.forward_api(self):
+                return
             if self.path in ('/api/jobs', '/api/jobs/clear'):
+                if cloud_store.enabled():
+                    for job in cloud_store.list_jobs():
+                        cloud_store.delete(job['id'])
                 deleted = 0
                 for p in list(STORE.glob('*')):
                     if p.is_dir():
@@ -1176,11 +1285,15 @@ class Handler(BaseHTTPRequestHandler):
             match_del = re.fullmatch(r'/api/jobs/([a-f0-9]{32})', self.path)
             if match_del:
                 job_id = match_del[1]
+                if cloud_store.enabled():
+                    cloud_store.delete(job_id)
                 folder = STORE / job_id
                 if folder.exists():
                     shutil.rmtree(folder, ignore_errors=True)
                 return self.send({'success': True, 'id': job_id})
             self.send({'error': 'Không tìm thấy đường dẫn.'}, 404)
+        except PermissionError as exc:
+            self.send({'error': str(exc), 'code': 'BACKEND_UNAUTHORIZED'}, 401)
         except Exception as exc:
             self.send({'error': str(exc)}, 400)
 
@@ -1190,6 +1303,8 @@ def main():
     parser.add_argument('--port', type=int, default=8765)
     parser.add_argument('--open', action='store_true', help='Mở trình duyệt mặc định')
     args = parser.parse_args()
+    if os.environ.get('SHIPMENT_API_TOKEN') and len(os.environ['SHIPMENT_API_TOKEN']) < 32:
+        parser.error('SHIPMENT_API_TOKEN must contain at least 32 random characters.')
     STORE.mkdir(exist_ok=True)
     url = f'http://127.0.0.1:{args.port}'
     try:
