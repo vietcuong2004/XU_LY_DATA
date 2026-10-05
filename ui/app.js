@@ -117,7 +117,28 @@ $('drop-input').addEventListener('click',e=>{
   if(e.target.closest('#clear-input')||e.target.closest('#process-button')||e.target.closest('#file-pill'))return;
   if(!state.input&&!state.useLocal){$('input-file').click();}
 });
-$('template-file').addEventListener('change',e=>{const file=e.target.files[0];if(!file)return;if(!file.name.toLowerCase().endsWith('.xlsx')||file.size>45*1024*1024)return toast('Chọn file mẫu .xlsx tối đa 45 MB.',true);state.template=file;$('template-name').textContent=file.name;});
+$('template-file').addEventListener('change',e=>{
+  const file=e.target.files[0];
+  if(!file)return;
+  if(!file.name.toLowerCase().endsWith('.xlsx')||file.size>45*1024*1024)return toast('Chọn file mẫu .xlsx tối đa 45 MB.',true);
+  state.template=file;
+  $('template-name').textContent=`${file.name} (mẫu riêng)`;
+  if($('clear-template')) $('clear-template').hidden=false;
+  toast('Đã chọn mẫu riêng thành công.');
+});
+const btnClearTpl = $('clear-template');
+if(btnClearTpl){
+  btnClearTpl.addEventListener('click',e=>{
+    e.preventDefault();
+    e.stopPropagation();
+    state.template=null;
+    $('template-file').value='';
+    const defaultTpl=state.config?.template || 'BARBIE 2728 _Weekly shipment schedule 2728_WK39.xlsx';
+    $('template-name').textContent=defaultTpl;
+    btnClearTpl.hidden=true;
+    toast('Đã khôi phục về mẫu mặc định.');
+  });
+}
 for(const event of ['dragenter','dragover'])$('drop-input').addEventListener(event,e=>{e.preventDefault();$('drop-input').classList.add('dragging');});
 for(const event of ['dragleave','drop'])$('drop-input').addEventListener(event,e=>{e.preventDefault();$('drop-input').classList.remove('dragging');});
 $('drop-input').addEventListener('drop',e=>inputChanged(e.dataTransfer.files[0]));
@@ -165,7 +186,6 @@ $('process-button').addEventListener('click',async()=>{
     if(!/^[a-zA-Z0-9_-]{1,20}$/.test(season))throw new Error('Mùa chỉ gồm chữ, số, dấu _ hoặc -.');
     if([start,end].some(v=>v&&!/^\d{4}\/\d{1,2}$/.test(v)))throw new Error('Khoảng tuần cần dạng YYYY/WW, ví dụ 2026/42.');
     if(!state.input&&!state.useLocal)throw new Error('Hãy chọn file nguồn.');
-    if(!state.template&&!state.config.template)throw new Error('Hãy chọn file mẫu BARBIE.');
     $('process-button').disabled=true;
     showView('progress');$('progress-message').textContent='Đang tải file lên…';$('progress-count').textContent='Khởi tạo';$('progress-fill').style.width='5%';
     if($('progress-percent')) $('progress-percent').textContent='0%';
@@ -219,7 +239,11 @@ async function pollJob(id){
 }
 async function loadConfig(){
   state.config=await api('/api/config');
-  if(!state.template)$('template-name').textContent=state.config.template || 'Chưa có mẫu mặc định. Vui lòng chọn file mẫu.';
+  const defaultTpl = state.config?.template || 'templates/BARBIE 2728 _Weekly shipment schedule 2728_WK39.xlsx';
+  if(!state.template){
+    $('template-name').textContent=defaultTpl;
+    if($('clear-template')) $('clear-template').hidden=true;
+  }
   if($('use-local')) $('use-local').hidden=!state.config.local_input;
   if($('local-name')) $('local-name').textContent=state.config.local_input || '';
   $('history').innerHTML=state.config.jobs.length?state.config.jobs.map(job=>`<button class="history-item" data-job="${job.id}"><strong>WK${String(job.week).padStart(2,'0')} · ${escapeHTML(job.source)}</strong><small>${new Date(job.created).toLocaleDateString('vi-VN')} · ${job.status==='ready'?`${job.total} Family`:job.status==='error'?'Bị gián đoạn':'Đang xử lý'}</small></button>`).join(''):'<p class="muted">Chưa có phiên xử lý.</p>';

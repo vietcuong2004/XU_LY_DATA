@@ -691,8 +691,9 @@ class Handler(BaseHTTPRequestHandler):
                 for p in sorted(STORE.glob('*/job.json'), key=lambda p: p.stat().st_mtime, reverse=True)[:12]:
                     jobs.append(json.loads(p.read_text(encoding='utf-8')))
                 default_tpl = process.find_default_template(ROOT)
+                tpl_name = default_tpl.name if default_tpl and default_tpl.exists() else 'BARBIE 2728 _Weekly shipment schedule 2728_WK39.xlsx'
                 return self.send({'local_input': local_input().name if local_input() else None,
-                                  'template': default_tpl.name if default_tpl and default_tpl.exists() else None,
+                                  'template': tpl_name,
                                   'jobs': jobs})
             match = re.fullmatch(r'/api/jobs/([a-f0-9]{32})(?:/(report|preview|download|zip))?', path)
             if not match:
