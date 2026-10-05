@@ -14,6 +14,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import io
 import json
 import math
+import os
 from pathlib import Path
 import re
 import shutil
@@ -33,7 +34,8 @@ from openpyxl.utils import get_column_letter, coordinate_to_tuple
 import process
 
 ROOT = Path(__file__).resolve().parent
-STORE = ROOT / '.ui_jobs'
+STORE = Path('/tmp/.ui_jobs') if (os.environ.get('VERCEL') or not os.access(ROOT, os.W_OK)) else ROOT / '.ui_jobs'
+STORE.mkdir(parents=True, exist_ok=True)
 POOL = ThreadPoolExecutor(max_workers=1)
 LOCKS = {}
 STATE_LOCK = threading.RLock()
@@ -500,20 +502,33 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header('Content-Length', str(len(data)))
         self.send_header('Cache-Control', 'no-store')
         self.send_header('X-Content-Type-Options', 'nosniff')
-        self.send_header('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'")
+        self.send_header('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'")
         if filename:
             self.send_header('Content-Disposition', "attachment; filename*=UTF-8''"+quote(filename))
         self.end_headers()
         self.wfile.write(data)
 
     def guard(self):
-        host = self.headers.get('Host', '')
-        port = self.server.server_port
-        if host not in {f'127.0.0.1:{port}', f'localhost:{port}'}:
-            raise ValueError('Ứng dụng chỉ nhận kết nối localhost.')
+        host = self.headers.get('Host', '').split(':')[0].lower()
+        if host in {'127.0.0.1', 'localhost'}:
+            pass
+        elif host.endswith('.vercel.app') or os.environ.get('VERCEL'):
+            pass
+        else:
+            allowed_env = os.environ.get('ALLOWED_HOSTS', '')
+            allowed = [h.strip().lower() for h in allowed_env.split(',') if h.strip()] if allowed_env else []
+            if not any(host == h or host.endswith('.' + h) for h in allowed):
+                raise ValueError(f'Ứng dụng chỉ nhận kết nối localhost hoặc domain được cấp phép.')
+
         origin = self.headers.get('Origin')
-        if origin and origin not in {f'http://127.0.0.1:{port}', f'http://localhost:{port}'}:
-            raise ValueError('Nguồn yêu cầu không được phép.')
+        if origin:
+            parsed_origin = urlparse(origin)
+            origin_host = (parsed_origin.hostname or '').lower()
+            if origin_host not in {'127.0.0.1', 'localhost'} and not origin_host.endswith('.vercel.app') and not os.environ.get('VERCEL'):
+                allowed_env = os.environ.get('ALLOWED_HOSTS', '')
+                allowed = [h.strip().lower() for h in allowed_env.split(',') if h.strip()] if allowed_env else []
+                if not any(origin_host == h or origin_host.endswith('.' + h) for h in allowed):
+                    raise ValueError('Nguồn yêu cầu không được phép.')
 
     def do_GET(self):
         try:
