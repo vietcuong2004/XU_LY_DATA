@@ -180,6 +180,67 @@ if (btnUseLocal) {
     updateFileInfo(state.config.local_input);
   });
 }
+let currentUploadRequest = null;
+let isCancelled = false;
+
+function cancelCurrentProcess(){
+  isCancelled = true;
+  if(currentUploadRequest){
+    try { currentUploadRequest.abort(); } catch(e){}
+    currentUploadRequest = null;
+  }
+  if(state.poll){
+    clearTimeout(state.poll);
+    state.poll = null;
+  }
+  state.job = null;
+  state.report = null;
+  setExportState(false);
+  showView('upload');
+  $('process-button').disabled = !state.input && !state.useLocal;
+  $('progress-message').textContent = 'Đang chuẩn bị dữ liệu…';
+  $('progress-fill').style.width = '0%';
+  if($('progress-percent')) $('progress-percent').textContent = '0%';
+  if($('progress-eta')) $('progress-eta').textContent = 'Đang tính toán...';
+  const track = document.querySelector('.progress-track');
+  if(track) track.classList.remove('indeterminate');
+  const confirmDialog = $('cancel-confirm-dialog');
+  if(confirmDialog && confirmDialog.open) confirmDialog.close();
+  toast('Đã hủy tải lên.');
+}
+
+const btnCancelProgress = $('btn-cancel-progress');
+if(btnCancelProgress){
+  btnCancelProgress.addEventListener('click', e => {
+    e.preventDefault();
+    e.stopPropagation();
+    const dialog = $('cancel-confirm-dialog');
+    if(dialog) dialog.showModal();
+  });
+}
+
+const btnAbortDismiss = $('btn-abort-dismiss');
+if(btnAbortDismiss){
+  btnAbortDismiss.addEventListener('click', () => {
+    const dialog = $('cancel-confirm-dialog');
+    if(dialog) dialog.close();
+  });
+}
+
+const btnAbortConfirm = $('btn-abort-confirm');
+if(btnAbortConfirm){
+  btnAbortConfirm.addEventListener('click', () => {
+    cancelCurrentProcess();
+  });
+}
+
+const cancelDialog = $('cancel-confirm-dialog');
+if(cancelDialog){
+  cancelDialog.addEventListener('click', e => {
+    if(e.target === cancelDialog) cancelDialog.close();
+  });
+}
+
 function uploadJob(options){
   const form=new FormData();
   form.append('options',JSON.stringify(options));
@@ -187,24 +248,36 @@ function uploadJob(options){
   if(state.template)form.append('template',state.template);
   return new Promise((resolve,reject)=>{
     const request=new XMLHttpRequest();
+    currentUploadRequest=request;
     request.open('POST','/api/jobs');
     request.responseType='json';
     request.upload.onprogress=event=>{
-      if(!event.lengthComputable)return;
+      if(!event.lengthComputable || isCancelled)return;
       const percent=Math.round(event.loaded/event.total*100);
       $('progress-message').textContent=percent<100?`Đang tải file lên… ${percent}%`:'Đã gửi file. Đang chờ máy chủ tiếp nhận…';
       $('progress-count').textContent=`${(event.loaded/1024/1024).toFixed(1)} / ${(event.total/1024/1024).toFixed(1)} MB`;
     };
     request.onload=()=>{
+      currentUploadRequest=null;
+      if(isCancelled){reject(new Error('ABORTED'));return;}
       if(request.status>=200&&request.status<300&&request.response){resolve(request.response);return;}
       reject(new Error(request.response?.error || (request.status===413?'File vượt giới hạn tải lên của máy chủ.':'Máy chủ chưa tiếp nhận được file. Vui lòng thử lại.')));
     };
-    request.onerror=()=>reject(new Error('Mất kết nối khi tải file lên. Vui lòng thử lại.'));
+    request.onabort=()=>{
+      currentUploadRequest=null;
+      reject(new Error('ABORTED'));
+    };
+    request.onerror=()=>{
+      currentUploadRequest=null;
+      if(isCancelled){reject(new Error('ABORTED'));return;}
+      reject(new Error('Mất kết nối khi tải file lên. Vui lòng thử lại.'));
+    };
     request.send(form);
   });
 }
 $('process-button').addEventListener('click',async()=>{
   $('upload-error').hidden=true;
+  isCancelled=false;
   try{
     const week=Number($('report-week').value),season=$('season').value.trim(),start=$('start-week').value.trim(),end=$('end-week').value.trim();
     if(!Number.isInteger(week)||week<1||week>53)throw new Error('Tuần báo cáo phải từ 1 đến 53.');
@@ -221,14 +294,21 @@ $('process-button').addEventListener('click',async()=>{
     if(initialTrack) initialTrack.classList.add('indeterminate');
     const payload={week,season,start,end,use_local:state.useLocal};
     const job=await uploadJob(payload);
+    if(isCancelled) return;
     state.job=job;state.report=null;state.preview=null;
     await pollJob(job.id);
-  }catch(error){showView('upload');$('upload-error').textContent=error.message;$('upload-error').hidden=false;}
-  finally{$('process-button').disabled=state.view==='progress';}
+  }catch(error){
+    if(error.message==='ABORTED'||isCancelled)return;
+    showView('upload');$('upload-error').textContent=error.message;$('upload-error').hidden=false;
+  }
+  finally{if(!isCancelled)$('process-button').disabled=state.view==='progress';}
 });
 async function pollJob(id){
+  if(isCancelled) return;
   clearTimeout(state.poll);
-  const job=await api(`/api/jobs/${id}`);state.job=job;
+  const job=await api(`/api/jobs/${id}`);
+  if(isCancelled) return;
+  state.job=job;
   $('progress-message').textContent=job.message;
   const elapsedSeconds=Math.max(0,Math.floor((Date.now()-new Date(job.created))/1000));
   $('progress-time').textContent=`Đã chạy: ${elapsedSeconds} giây`;
@@ -261,7 +341,9 @@ async function pollJob(id){
   }
   if(job.status==='ready'){await openJob(id);await loadConfig();return;}
   if(job.status==='error'){setExportState(false);showView('upload');$('upload-error').textContent=job.message;$('upload-error').hidden=false;await loadConfig();return;}
-  state.poll=setTimeout(()=>pollJob(id).catch(error=>{toast(error.message,true);showView('upload');}),1200);
+  if(!isCancelled){
+    state.poll=setTimeout(()=>pollJob(id).catch(error=>{if(!isCancelled){toast(error.message,true);showView('upload');}}),1200);
+  }
 }
 async function loadConfig(){
   state.config=await api('/api/config');
