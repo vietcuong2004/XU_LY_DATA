@@ -40,6 +40,31 @@ $('tab-btn-review').addEventListener('click', ()=>switchTab('review'));
 const btnGoto = $('btn-goto-upload');
 if(btnGoto) btnGoto.addEventListener('click', ()=>switchTab('upload'));
 
+function setExportState(enabled, href=''){
+  const btn = $('go-export');
+  if(!btn) return;
+  if(enabled && href){
+    btn.removeAttribute('aria-disabled');
+    btn.href = href;
+    btn.title = 'Tải toàn bộ kết quả đã lưu (.zip)';
+  } else {
+    btn.setAttribute('aria-disabled', 'true');
+    btn.removeAttribute('href');
+    btn.title = 'Chưa có file family nào được tạo để xuất';
+  }
+}
+const btnExport = $('go-export');
+if(btnExport){
+  btnExport.addEventListener('click', e => {
+    if(btnExport.getAttribute('aria-disabled') === 'true' || !btnExport.getAttribute('href')){
+      e.preventDefault();
+      e.stopPropagation();
+      toast('Chưa hoàn tất tạo các file Family để xuất kết quả.', true);
+    }
+  });
+}
+setExportState(false);
+
 function showView(view){
   state.view=view;
   const busy=view==='progress';
@@ -187,6 +212,7 @@ $('process-button').addEventListener('click',async()=>{
     if([start,end].some(v=>v&&!/^\d{4}\/\d{1,2}$/.test(v)))throw new Error('Khoảng tuần cần dạng YYYY/WW, ví dụ 2026/42.');
     if(!state.input&&!state.useLocal)throw new Error('Hãy chọn file nguồn.');
     $('process-button').disabled=true;
+    setExportState(false);
     showView('progress');$('progress-message').textContent='Đang tải file lên…';$('progress-count').textContent='Khởi tạo';$('progress-fill').style.width='5%';
     if($('progress-percent')) $('progress-percent').textContent='0%';
     if($('progress-eta')) $('progress-eta').textContent='Đang ước tính...';
@@ -234,7 +260,7 @@ async function pollJob(id){
     }
   }
   if(job.status==='ready'){await openJob(id);await loadConfig();return;}
-  if(job.status==='error'){showView('upload');$('upload-error').textContent=job.message;$('upload-error').hidden=false;await loadConfig();return;}
+  if(job.status==='error'){setExportState(false);showView('upload');$('upload-error').textContent=job.message;$('upload-error').hidden=false;await loadConfig();return;}
   state.poll=setTimeout(()=>pollJob(id).catch(error=>{toast(error.message,true);showView('upload');}),1200);
 }
 async function loadConfig(){
@@ -255,8 +281,8 @@ async function openJob(id){
   state.report=await api(`/api/jobs/${id}/report`);
   state.filter='all';state.search='';$('family-search').value='';
   state.file=state.report.families.find(f=>f.name==='BARBIE 2728')?.id ?? 0;state.sheet=0;
-  $('source-caption').textContent=state.job.source;
-  $('go-export').href=`/api/jobs/${state.job.id}/zip`;
+  if($('source-caption')) $('source-caption').textContent=state.job.source;
+  setExportState(true, `/api/jobs/${state.job.id}/zip`);
   document.querySelectorAll('[data-filter]').forEach(e=>e.classList.toggle('active',e.dataset.filter==='all'));
   renderMetrics();renderFamilies();showView('review');await loadPreview();
   history.replaceState(null,'',`?job=${id}`);
@@ -267,7 +293,7 @@ function renderMetrics(){
   const warnings=families.filter(f=>f.problems.length).length;
   const edited=families.filter(f=>f.changed_cells>0).length;
   const metrics=[[families.length,'File Family đã tạo','▦',''],[state.report.weeks,'Tuần trong kế hoạch','▤',''],[warnings,'Family cần kiểm tra','◎','amber'],[edited,'Family đã chỉnh sửa','✎','blue']];
-  $('metrics').innerHTML=metrics.map(([value,label,icon,color])=>`<div class="metric"><div><strong>${value}</strong><label>${label}</label></div><span class="metric-icon ${color}">${icon}</span></div>`).join('');
+  if($('metrics')) $('metrics').innerHTML=metrics.map(([value,label,icon,color])=>`<div class="metric"><div><strong>${value}</strong><label>${label}</label></div><span class="metric-icon ${color}">${icon}</span></div>`).join('');
   const badge = $('tab-review-badge');
   if(badge){
     badge.textContent = `${families.length} Family`;

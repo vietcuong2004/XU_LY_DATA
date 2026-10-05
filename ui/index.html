@@ -3,8 +3,8 @@
 <head>
   <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Shipment Studio · Excel workspace</title>
-  <link rel="stylesheet" href="/style.css?v=2">
-  <script src="/app.js?v=2" defer></script>
+  <link rel="stylesheet" href="/style.css?v=3">
+  <script src="/app.js?v=3" defer></script>
 </head>
 <body>
 <main>
@@ -12,15 +12,27 @@
   <div id="toast" role="status" aria-live="polite"></div>
   
   <nav class="main-tabs" role="tablist" aria-label="Các bước làm việc">
-    <button id="tab-btn-upload" role="tab" class="main-tab active" aria-selected="true" aria-controls="tab-content-upload">
-      <span class="tab-icon">↥</span>
-      <span class="tab-title">Tải file lên</span>
-    </button>
-    <button id="tab-btn-review" role="tab" class="main-tab" aria-selected="false" aria-controls="tab-content-review">
-      <span class="tab-icon">▦</span>
-      <span class="tab-title">Sửa & xuất kết quả</span>
-      <span id="tab-review-badge" class="tab-badge" hidden></span>
-    </button>
+    <div class="tabs-group">
+      <button id="tab-btn-upload" role="tab" class="main-tab active" aria-selected="true" aria-controls="tab-content-upload">
+        <span class="tab-icon">↥</span>
+        <span class="tab-title">Tải file lên</span>
+      </button>
+      <button id="tab-btn-review" role="tab" class="main-tab" aria-selected="false" aria-controls="tab-content-review">
+        <span class="tab-icon">▦</span>
+        <span class="tab-title">Sửa & xuất kết quả</span>
+        <span id="tab-review-badge" class="tab-badge" hidden></span>
+      </button>
+    </div>
+    <div class="tabs-actions">
+      <a id="go-export" class="button primary export-zip-btn" download title="Chưa có file kết quả để xuất" aria-disabled="true">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+          <polyline points="7 10 12 15 17 10"></polyline>
+          <line x1="12" y1="15" x2="12" y2="3"></line>
+        </svg>
+        <span>Xuất kết quả</span>
+      </a>
+    </div>
   </nav>
 
   <div id="tab-content-upload" class="tab-content" role="tabpanel" aria-labelledby="tab-btn-upload">
@@ -156,8 +168,6 @@
       </div>
     </section>
     <section id="view-review" class="page review-page" hidden>
-      <div class="section-heading"><div><div class="eyebrow">XEM · CHỈNH SỬA · TẢI VỀ</div><h1>Các file Excel đã tạo</h1><p id="source-caption"></p></div><a class="button primary" id="go-export" download title="Tải toàn bộ kết quả đã lưu (.zip)">Xuất kết quả <span>↧</span></a></div>
-      <div id="metrics" class="metrics"></div>
       <div class="review-workspace">
         <aside class="family-panel"><div class="family-panel-heading"><h2>Danh sách file</h2><span id="family-count" class="small-tag"></span></div><label class="search-box"><span>⌕</span><input id="family-search" placeholder="Tìm Family…" aria-label="Tìm Family"></label><div class="filter-row"><button class="chip active" data-filter="all">Tất cả</button><button class="chip" data-filter="warning">Cần xem</button><button class="chip" data-filter="edited">Đã sửa</button></div><div id="family-list" class="family-list"></div></aside>
         <div class="workbook-panel"><div class="workbook-heading"><div class="excel-tile">X</div><div class="workbook-title"><h2 id="workbook-name"></h2><p id="workbook-meta"></p></div><div class="workbook-actions"><button type="button" id="btn-preview-excel" class="button secondary compact" title="Xem trước file Excel khi tải xuống (màu sắc chữ, kích cỡ ô, màu ô...)"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg><span>Xem trước</span></button><a id="download-one" class="button primary compact" download title="Tải file Excel này" aria-label="Tải file này"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg><span>Tải file này</span></a></div></div><div id="sheet-tabs" class="sheet-tabs" role="tablist" aria-label="Sheets"></div><div class="sheet-toolbar"><div><span class="legend green"></span>Khớp nguồn <span class="legend blue"></span>Đã thay đổi <span class="legend red"></span>Lỗi dữ liệu</div><button id="jump-warning" class="text-button">Xem điểm cần kiểm tra ↓</button></div><div id="grid-container" class="grid-container" tabindex="0" aria-label="Bảng dữ liệu Excel"><div class="empty-state">Chọn một Family để xem dữ liệu.</div></div><div class="grid-footer"><span id="grid-info"></span><span>Nhấn vào ô để xem hoặc sửa <span class="keycap">↵</span></span></div></div>
