@@ -173,7 +173,9 @@ class RealWorkbookTests(unittest.TestCase):
                 unique_items = list(dict.fromkeys((str(self.value(6,c) or '').strip(),
                                                    str(self.value(5,c) or '').strip()) for c in source_cols))
                 running = 0
-                for out_row in range(14, b.max_row + 1):
+                week_output_rows = [row for row in range(14, b.max_row + 1)
+                                    if process.WEEK_RE.fullmatch(process.clean(b.cell(row, 1).value))]
+                for out_row in week_output_rows:
                     label = b.cell(out_row, 1).value
                     src_row = self.week_rows[label]
                     row_values = [self.sheet.cell(src_row, c).value for c in source_cols]
@@ -201,6 +203,13 @@ class RealWorkbookTests(unittest.TestCase):
                     self.assertEqual(actual.date() if actual else None, monday)
                     actual = release.cell(out_row - 11, 1).value
                     self.assertEqual(actual.date() if actual else None, monday)
+                total_row = week_output_rows[-1] + 1
+                self.assertEqual(b.cell(total_row, 1).value, 'Total')
+                for out_col, source_col in enumerate(source_cols, 2):
+                    expected = self.total([self.sheet.cell(self.week_rows[b.cell(row, 1).value], source_col).value
+                                           for row in week_output_rows])
+                    self.assert_value(b.cell(total_row, out_col).value, expected)
+                    self.assertIsInstance(b.cell(total_row + 5, out_col).value, bool)
                 self.assertFalse(formulas._external_links)
                 for sh in formulas:
                     for row in sh:

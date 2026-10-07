@@ -71,15 +71,20 @@ def apply_template_format(wb, template):
         last_row, last_col = sheet.max_row,sheet.max_column
         start = 14 if index == 0 else 19 if index == 1 else None
         template_end = week_end(reference,start) if start else reference.max_row
+        output_end = week_end(sheet,start) if start else last_row
 
         def ref_row(row):
             if start is None:
                 return min(row,reference.max_row)
             if row < start:
                 return row
-            if row == last_row and last_row >= template_end:
-                return template_end
-            return min(row,template_end-1)
+            if row <= output_end:
+                if row == output_end and output_end >= template_end:
+                    return template_end
+                return min(row,template_end-1)
+            # Footer rows stay immediately below the resized week block.
+            if row > output_end:
+                return min(template_end + row - output_end, reference.max_row)
 
         def ref_col(col,row=None):
             if index == 0:
@@ -191,7 +196,7 @@ def apply_template_format(wb, template):
                 cols = [c for c in range(1,last_col+1) if area.min_col<=ref_col(c,area.min_row)<=area.max_col]
                 if not cols:
                     continue
-                delta = last_row-template_end if start and area.min_row>template_end else 0
+                delta = output_end-template_end if start and area.min_row>template_end else 0
                 target_range = CellRange(min_col=min(cols),max_col=max(cols),
                                          min_row=area.min_row+delta,max_row=area.max_row+delta)
                 for rule in rules:

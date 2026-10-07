@@ -130,6 +130,7 @@ def apply(ui, job_id, report, entry, payload):
                                output=str(new_folder/'files'), family=None, season=parent['season'], week=parent['week'],
                                start_week=ui.process.week_arg(parent['start']) if parent.get('start') else None,
                                end_week=ui.process.week_arg(parent['end']) if parent.get('end') else None,
+                               shipping_week=ui.process.week_arg(parent['shipping_week']) if parent.get('shipping_week') else None,
                                date=date.fromisoformat(report['date']) if report.get('date') else None,
                                strict=False, overwrite=False, source_name=parent['source'])
         ui.generate(new_id, args)

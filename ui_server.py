@@ -9,7 +9,7 @@ import argparse
 import base64
 from collections import OrderedDict
 from concurrent.futures import ThreadPoolExecutor
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from email import policy
 from email.parser import BytesParser
 import gzip
@@ -32,7 +32,7 @@ from zipfile import ZipFile, BadZipFile, ZIP_DEFLATED
 import openpyxl
 from openpyxl.cell.cell import MergedCell
 from openpyxl.styles import PatternFill
-from openpyxl.utils import get_column_letter, coordinate_to_tuple
+from openpyxl.utils import get_column_letter, coordinate_to_tuple, range_boundaries
 
 import process
 import excel_engine
@@ -149,7 +149,7 @@ def parse_payload(content_type, raw):
                     fn = unquote(m.group(1).strip('\'"'))
             payload[name] = {'name': fn or 'input.xlsx', 'raw': data}
     options = payload.pop('options', {})
-    if not isinstance(options, dict) or set(options) - {'week', 'season', 'start', 'end', 'use_local', 'original_filename'}:
+    if not isinstance(options, dict) or set(options) - {'week', 'season', 'start', 'end', 'shipping_week', 'use_local', 'original_filename'}:
         raise ValueError('Tùy chọn tải lên không hợp lệ.')
     return {**options, **payload}
 
@@ -161,6 +161,9 @@ def create_job(payload, on_progress=None):
         raise ValueError('Tuần phải từ 1–53. Mùa chỉ gồm chữ, số, dấu _ hoặc -.')
     start = process.week_arg(payload['start']) if payload.get('start') else None
     end = process.week_arg(payload['end']) if payload.get('end') else None
+    shipping_week = process.week_arg(payload['shipping_week']) if payload.get('shipping_week') else None
+    if shipping_week:
+        process.date.fromisocalendar(*shipping_week, 1)
     if start and end and start > end:
         raise ValueError('Tuần bắt đầu phải trước hoặc bằng tuần kết thúc.')
     job_id = uuid.uuid4().hex
@@ -187,10 +190,11 @@ def create_job(payload, on_progress=None):
         template_name = default.name
     state = {'id': job_id, 'status': 'queued', 'created': timestamp(), 'source': source_name,
              'template': template_name, 'season': season, 'week': week, 'start': payload.get('start', ''),
-             'end': payload.get('end', ''), 'completed': 0, 'total': 0, 'message': 'Đang chờ xử lý…'}
+             'end': payload.get('end', ''), 'shipping_week': payload.get('shipping_week', ''),
+             'completed': 0, 'total': 0, 'message': 'Đang chờ xử lý…'}
     write_json(folder / 'job.json', state)
     args = SimpleNamespace(input=str(source), template=str(template), output=str(folder/'files'),
-                           family=None, season=season, week=week, start_week=start, end_week=end,
+                           family=None, season=season, week=week, start_week=start, end_week=end, shipping_week=shipping_week,
                            date=None, strict=False, overwrite=False, source_name=source_name)
     if on_progress is not None:
         on_progress(state)
@@ -307,7 +311,10 @@ def reconcile_source(reader, path, entry, workbook=None):
             check(s.cell(out_row,out_col), total([reader.value(source_row,col) for col in group]))
     running = 0
     for row in range(14,b.max_row+1):
-        source_row = week_rows[b.cell(row,1).value]
+        label = process.clean(b.cell(row,1).value)
+        if not process.WEEK_RE.fullmatch(label):
+            continue
+        source_row = week_rows[label]
         values = [reader.value(source_row,col) for col in columns]
         for out_col, expected in enumerate(values,2):
             check(b.cell(row,out_col), expected)
@@ -481,6 +488,8 @@ def analyze(path, baseline, entry, workbook=None, original_workbook=None):
     breakdown = wb['Breakdown ']
     for row in range(14, breakdown.max_row + 1):
         value = breakdown.cell(row, 1).value
+        if not process.WEEK_RE.fullmatch(process.clean(value)):
+            continue
         try:
             year, week = map(int, str(value).split('/'))
             date.fromisocalendar(year, week, 1)
@@ -488,7 +497,10 @@ def analyze(path, baseline, entry, workbook=None, original_workbook=None):
             problems.append({'sheet': 'Breakdown ', 'cell': f'A{row}', 'kind': 'week',
                              'message': f'Tuần {value} không hợp lệ theo ISO.',
                              'suggestion': suggest_week_fix(value)})
-    last = wb.worksheets[1].cell(wb.worksheets[1].max_row, entry['markets'] + 3).value
+    summary = wb.worksheets[1]
+    last_week_row = max(row for row in range(19, summary.max_row + 1)
+                        if process.WEEK_RE.fullmatch(process.clean(summary.cell(row, 1).value)))
+    last = summary.cell(last_week_row, entry['markets'] + 3).value
     if workbook is None:
         wb.close()
     if original_workbook is None:
@@ -508,10 +520,11 @@ def edit_type(wb, entry, sheet, cell):
         return None
     r, c = cell.row, cell.column
     if sheet.title == 'Breakdown ':
-        if c == 1 and r >= 14:
+        is_week_row = r >= 14 and process.WEEK_RE.fullmatch(process.clean(sheet.cell(r, 1).value))
+        if c == 1 and is_week_row:
             return 'week'
         if 2 <= c <= entry['items'] + 1:
-            if r in (9, 10) or r >= 14:
+            if r in (9, 10) or is_week_row:
                 return 'number'
             if r in (3, 4, 7, 8, 12, 13):
                 return 'text'
@@ -605,8 +618,15 @@ def preview(job_id, file_id, sheet_index):
             raise ValueError('Sheet không hợp lệ.')
         sheet = wb.worksheets[sheet_index]
         source_enabled = bool(entry.get('is_source') and excel_engine.capability()['available'])
+        meaningful = [cell for cell in sheet._cells.values()
+                      if cell.value is not None or cell.comment is not None]
+        max_row = max((cell.row for cell in meaningful), default=1)
+        max_col = max((cell.column for cell in meaningful), default=1)
+        for merged in sheet.merged_cells.ranges:
+            max_row = max(max_row, merged.max_row)
+            max_col = max(max_col, merged.max_col)
         cells = []
-        for row in sheet:
+        for row in sheet.iter_rows(min_row=1, max_row=max_row, min_col=1, max_col=max_col):
             record = []
             for cell in row:
                 value = values[sheet.title][cell.coordinate].value
@@ -655,14 +675,14 @@ def preview(job_id, file_id, sheet_index):
             cells.append(record)
 
         col_widths = {}
-        for c_idx in range(1, sheet.max_column + 1):
+        for c_idx in range(1, max_col + 1):
             col_letter = get_column_letter(c_idx)
             dim = sheet.column_dimensions.get(col_letter)
             if dim and dim.width:
                 col_widths[col_letter] = round(dim.width * 7.5, 1)
 
         row_heights = {}
-        for r_idx in range(1, sheet.max_row + 1):
+        for r_idx in range(1, max_row + 1):
             dim = sheet.row_dimensions.get(r_idx)
             if dim and dim.height:
                 row_heights[str(r_idx)] = round(dim.height * 1.33, 1)
@@ -671,7 +691,7 @@ def preview(job_id, file_id, sheet_index):
                   'source_editing': excel_engine.capability() if entry.get('is_source') else None,
                   'sheet': sheet.title, 'sheet_index': sheet_index, 'rows': cells,
                   'merges': [str(a) for a in sheet.merged_cells.ranges],
-                  'columns': [get_column_letter(c) for c in range(1, sheet.max_column+1)],
+                  'columns': [get_column_letter(c) for c in range(1, max_col+1)],
                   'col_widths': col_widths, 'row_heights': row_heights}
         for book in (wb, values, old):
             book.close()
@@ -695,16 +715,50 @@ def recalculate(wb):
             raise ValueError('Phát hiện công thức vòng.')
         visiting.add(key)
         match = re.fullmatch(r'=SUM\((.*)\)', cell.value)
-        if not match:
-            raise ValueError(f'Công thức chưa hỗ trợ: {sheet}!{address}')
-        # A quoted sheet name can contain commas: tokenize references, not split(',').
-        refs = re.findall(r"(?:'((?:[^']|'')+)'!)?([A-Z]+[1-9][0-9]*)(?:,|$)", match[1])
-        reconstructed = ','.join((f"'{s}'!" if s else '') + a for s, a in refs)
-        if reconstructed != match[1]:
-            raise ValueError('Tham chiếu công thức không hợp lệ.')
-        vals = [value(s.replace("''", "'") if s else sheet, a) for s, a in refs]
-        error = next((v for v in vals if isinstance(v, str) and v in process.ERRORS), None)
-        result = error or sum(v for v in vals if isinstance(v, (int, float)))
+        if match:
+            area = re.fullmatch(r'([A-Z]+[1-9][0-9]*):([A-Z]+[1-9][0-9]*)', match[1])
+            if area:
+                min_col, min_row, max_col, max_row = range_boundaries(match[1])
+                vals = [value(sheet, f'{get_column_letter(col)}{row}')
+                        for row in range(min_row, max_row + 1)
+                        for col in range(min_col, max_col + 1)]
+            else:
+                # A quoted sheet name can contain commas: tokenize references, not split(',').
+                refs = re.findall(r"(?:'((?:[^']|'')+)'!)?([A-Z]+[1-9][0-9]*)(?:,|$)", match[1])
+                reconstructed = ','.join((f"'{s}'!" if s else '') + a for s, a in refs)
+                if reconstructed != match[1]:
+                    raise ValueError('Tham chiếu công thức không hợp lệ.')
+                vals = [value(s.replace("''", "'") if s else sheet, a) for s, a in refs]
+            error = next((v for v in vals if isinstance(v, str) and v in process.ERRORS), None)
+            result = error or sum(v for v in vals if isinstance(v, (int, float)))
+        else:
+            iso = re.fullmatch(r'=_xlfn\.ISOWEEKNUM\(([A-Z]+[1-9][0-9]*)\)', cell.value)
+            operation = re.fullmatch(
+                r'=\+?([A-Z]+[1-9][0-9]*)(-|\+|/|<=)([A-Z]+[1-9][0-9]*|[0-9]+(?:\.[0-9]+)?)',
+                cell.value)
+            if iso:
+                source = value(sheet, iso.group(1))
+                result = source.isocalendar().week if isinstance(source, (date, datetime)) else '#VALUE!'
+            elif operation:
+                left, operator, right = operation.groups()
+                left_value = value(sheet, left)
+                right_value = value(sheet, right) if re.fullmatch(r'[A-Z]+[1-9][0-9]*', right) else float(right)
+                error = next((v for v in (left_value, right_value)
+                              if isinstance(v, str) and v in process.ERRORS), None)
+                if error:
+                    result = error
+                elif operator == '-':
+                    result = (left_value or 0) - (right_value or 0)
+                elif operator == '/':
+                    result = '#DIV/0!' if not right_value else (left_value or 0) / right_value
+                elif operator == '<=':
+                    result = (left_value or 0) <= (right_value or 0)
+                elif isinstance(left_value, (date, datetime)) and isinstance(right_value, (int, float)):
+                    result = left_value + timedelta(days=right_value)
+                else:
+                    result = (left_value or 0) + (right_value or 0)
+            else:
+                raise ValueError(f'Công thức chưa hỗ trợ: {sheet}!{address}')
         if isinstance(result, (int, float)) and not math.isfinite(result):
             raise ValueError('Tổng số lượng vượt giới hạn.')
         cache[key] = result
@@ -741,7 +795,9 @@ def sync_summary(wb, entry):
             process.put(summary, row, col, ' / '.join(v for v in vals if v))
     seen = set()
     for row in range(14, breakdown.max_row+1):
-        label = str(breakdown.cell(row, 1).value)
+        label = process.clean(breakdown.cell(row, 1).value)
+        if not process.WEEK_RE.fullmatch(label):
+            continue
         if label in seen:
             raise ValueError(f'Tuần {label} đã tồn tại trong file.')
         seen.add(label)
@@ -1047,6 +1103,11 @@ class Handler(BaseHTTPRequestHandler):
             if path in static:
                 name, mime = static[path]
                 return self.send((ROOT/'ui'/name).read_bytes(), content_type=mime)
+            modules = {'state.mjs', 'api.mjs', 'file-list.mjs', 'grid-view.mjs',
+                       'preview-view.mjs', 'workbook-controller.mjs', 'week-picker.mjs'}
+            if path.startswith('/modules/') and path[len('/modules/'):] in modules:
+                return self.send((ROOT/'ui'/path.lstrip('/')).read_bytes(),
+                                 content_type='text/javascript; charset=utf-8')
             if path == '/api/config':
                 jobs = []
                 for p in sorted(STORE.glob('*/job.json'), key=lambda p: p.stat().st_mtime, reverse=True)[:12]:

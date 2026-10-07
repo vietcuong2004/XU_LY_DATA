@@ -23,6 +23,7 @@ import xml.etree.ElementTree as ET
 import openpyxl
 from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter as letter
+from openpyxl.utils.datetime import to_excel
 from openpyxl.workbook.properties import CalcProperties
 import pandas as pd
 from template_format import apply_template_format
@@ -143,6 +144,26 @@ def extract_weeks(reader, issues, start=None, end=None):
     return weeks
 
 
+def filter_shipping_families(infos, reader, weeks, shipping_week):
+    label = f'{shipping_week[0]}/{shipping_week[1]:02d}'
+    date.fromisocalendar(*shipping_week, 1)
+    target = next((w for w in weeks if w['label'] == label), None)
+    if target is None:
+        raise ValueError(f'Không có tuần {label} trong SUM. Hãy chọn tuần có trong file nguồn.')
+    selected, excluded = [], []
+    for info in infos:
+        quantities = [numeric(reader.value(target['row'], c), f'{letter(c)}{target["row"]}')
+                      for c in info['columns']]
+        if any(isinstance(q, (int, float)) and q > 0 for q in quantities):
+            selected.append(info)
+        elif any(q in ERRORS for q in quantities if isinstance(q, str)):
+            raise ValueError(f'{info["name"]}: số liệu tuần {label} có lỗi Excel; chưa thể xác định có giao hàng.')
+        else:
+            excluded.append(info['name'])
+    return selected, {'week': label, 'detected': len(infos), 'selected': len(selected),
+                      'excluded': excluded, 'rule': 'Có ít nhất một item có số lượng > 0; giữ toàn bộ lịch và item.'}
+
+
 def numeric(value, coordinate):
     if value is None or value == '':
         return None
@@ -241,6 +262,13 @@ def sum_formula(sheet, row, col, cells):
     return formula(sheet, row, col, '=SUM(' + ','.join(refs) + ')', sum_value(cells))
 
 
+def range_sum_formula(sheet, row, col, start_row, end_row, source_col=None):
+    source_col = source_col or col
+    cells = [sheet.cell(source_row, source_col) for source_row in range(start_row, end_row + 1)]
+    column = letter(source_col)
+    return formula(sheet, row, col, f'=SUM({column}{start_row}:{column}{end_row})', sum_value(cells))
+
+
 def review_note(cell, text):
     """Keep provenance in the review report, without Excel's red Note markers."""
     wb = cell.parent.parent
@@ -308,7 +336,9 @@ def build_breakdown_sheet(wb, family_data):
     for item in d['items']:
         groups.setdefault((item['mpg'], item['name']), []).append(item)
     last_col = 1 + len(d['items']) + len(groups)
-    sheet = setup_sheet(wb, 'Breakdown ', d['template']['Breakdown '], 13 + len(d['weeks']),
+    last_week_row = 13 + len(d['weeks'])
+    footer_rows = 6
+    sheet = setup_sheet(wb, 'Breakdown ', d['template']['Breakdown '], last_week_row + footer_rows,
                         last_col, lambda r: min(r, 14),
                         lambda c: 1 if c == 1 else (14 if c > 1 + len(d['items']) else 2))
     labels = {4: 'Dest. Code', 5: 'Item', 6: 'MPG', 7: 'Version: ', 8: 'PCS/carton',
@@ -330,7 +360,7 @@ def build_breakdown_sheet(wb, family_data):
             cell = put(sheet, row, col, item[key])
             cell.number_format = NUMBER_FORMAT if row in (9, 10) else 'General'
         sum_formula(sheet, 11, col, [sheet.cell(9, col), sheet.cell(10, col)])
-        for row, value, week in zip(range(14, sheet.max_row + 1), item['quantities'], d['weeks']):
+        for row, value, week in zip(range(14, last_week_row + 1), item['quantities'], d['weeks']):
             cell = put(sheet, row, col, value)
             cell.number_format = NUMBER_FORMAT
             mark_source(cell, d['source_sheet'].cell(week['row'], item['column']), d)
@@ -341,10 +371,53 @@ def build_breakdown_sheet(wb, family_data):
     for col, ((mpg, name), items) in enumerate(groups.items(), total_start):
         put(sheet, 5, col, name)
         put(sheet, 6, col, mpg)
-        for row in [9, 10, 11, *range(14, sheet.max_row + 1)]:
+        for row in [9, 10, 11, *range(14, last_week_row + 1)]:
             sum_formula(sheet, row, col, [sheet.cell(row, i['output_column']) for i in items])
     for row, week in enumerate(d['weeks'], 14):
         put(sheet, row, 1, week['label'])
+
+    # Preserve the six-row reconciliation footer from the template below the
+    # dynamically-sized week block. Formulas and cached values are generated
+    # for this Family, so they remain useful before Excel recalculates the file.
+    total_row = last_week_row + 1
+    put(sheet, total_row, 1, 'Total')
+    for col in range(2, last_col + 1):
+        range_sum_formula(sheet, total_row, col, 14, last_week_row)
+    reference = d['template']['Breakdown ']
+    reference_week_end = next(
+        row - 1 for row in range(14, reference.max_row + 2)
+        if not WEEK_RE.fullmatch(clean(reference.cell(row, 1).value)))
+    reference_total_start = next(
+        col for col in range(2, reference.max_column + 1)
+        if clean(reference.cell(3, col).value).upper().startswith('TOTAL '))
+    for row in (total_row + 1, total_row + 2):
+        for col in range(2, total_start):
+            reference_col = min(col, reference_total_start - 1)
+            reference_row = reference_week_end + 1 + (row - total_row)
+            put(sheet, row, col, reference.cell(reference_row, reference_col).value)
+    difference_row = total_row + 3
+    tolerance_row = total_row + 4
+    check_row = total_row + 5
+    reference_tolerance_row = reference_week_end + 5
+    for col in range(2, total_start):
+        total_value = cached_value(sheet.cell(total_row, col))
+        released_value = cached_value(sheet.cell(11, col))
+        difference = (total_value - released_value
+                      if isinstance(total_value, (int, float)) and isinstance(released_value, (int, float))
+                      else total_value if isinstance(total_value, str) and total_value in ERRORS
+                      else released_value if isinstance(released_value, str) and released_value in ERRORS
+                      else None)
+        formula(sheet, difference_row, col,
+                f'={letter(col)}{total_row}-{letter(col)}11', difference)
+        reference_col = min(col, reference_total_start - 1)
+        tolerance = reference.cell(reference_tolerance_row, reference_col).value
+        tolerance = tolerance if isinstance(tolerance, (int, float)) else 15.6
+        put(sheet, tolerance_row, col, tolerance).number_format = NUMBER_FORMAT
+        passed = (difference if isinstance(difference, str) and difference in ERRORS
+                  else difference <= tolerance if isinstance(difference, (int, float))
+                  else False)
+        formula(sheet, check_row, col,
+                f'=+{letter(col)}{difference_row}<={letter(col)}{tolerance_row}', passed)
     sheet.freeze_panes = 'B14'
     sheet.print_title_rows = '1:13'
     finish_widths(sheet)
@@ -369,8 +442,10 @@ def build_summary_sheet(wb, family_data):
     markets = list(d['markets'].values())
     n = len(markets)
     total_col = n + 2
+    last_week_row = 18 + len(d['weeks'])
+    footer_rows = 3
     sheet = setup_sheet(wb, sheet_name(d['name']), d['template'].worksheets[1],
-                        18 + len(d['weeks']), n + 15,
+                        last_week_row + footer_rows, n + 15,
                         lambda r: min(r, 19),
                         lambda c: c if c == 1 else (2 if c <= n + 1 else c - n + 3))
     # Header có màu/chữ riêng từng cột; không lặp style cột thị trường B lên D/E.
@@ -404,7 +479,7 @@ def build_summary_sheet(wb, family_data):
             put(sheet, row, col, value).number_format = 'General'
         for row, source_row in [(14,9), (15,10), (16,11)]:
             sum_formula(sheet, row, col, [breakdown.cell(source_row, i['output_column']) for i in group])
-        for row in range(19, sheet.max_row + 1):
+        for row in range(19, last_week_row + 1):
             sum_formula(sheet, row, col, [breakdown.cell(row - 5, i['output_column']) for i in group])
     for col, label in enumerate(LOGISTICS, total_col):
         put(sheet, 9, col, label)
@@ -420,6 +495,55 @@ def build_summary_sheet(wb, family_data):
             review_note(cell, f'{week["label"]} không hợp lệ theo ISO; cần kiểm tra nguồn.')
             cell.fill = PatternFill('solid', fgColor='FFF2CC')
         put(sheet, row, total_col + 3, week['week']).number_format = '0'
+
+    # Preserve the three calculation rows below the schedule from the sample.
+    total_row, each_row, continuation_row = last_week_row + 1, last_week_row + 2, last_week_row + 3
+    put(sheet, total_row, 1, 'TOTAL QTY: ')
+    put(sheet, each_row, 1, 'EACH: ')
+    for col in range(2, n + 2):
+        range_sum_formula(sheet, total_row, col, 19, last_week_row)
+        numerator = cached_value(sheet.cell(total_row, col))
+        divisor = cached_value(sheet.cell(13, col))
+        error = next((v for v in (numerator, divisor) if isinstance(v, str) and v in ERRORS), None)
+        if error:
+            each_value = error
+        elif not isinstance(divisor, (int, float)) or divisor == 0:
+            each_value = '#DIV/0!'
+        else:
+            each_value = numerator / divisor
+        formula(sheet, each_row, col,
+                f'={letter(col)}{total_row}/{letter(col)}13', each_value)
+    total_start, total_end = letter(2), letter(n + 1)
+    formula(sheet, total_row, total_col, f'=SUM({total_start}{total_row}:{total_end}{total_row})',
+            sum_value(sheet.cell(total_row, col) for col in range(2, n + 2)))
+    formula(sheet, each_row, total_col, f'=SUM({total_start}{each_row}:{total_end}{each_row})',
+            sum_value(sheet.cell(each_row, col) for col in range(2, n + 2)))
+    range_sum_formula(sheet, continuation_row, total_col, 19, last_week_row)
+
+    def add_formula(row, col, left, right):
+        left_value, right_value = cached_value(left), cached_value(right)
+        error = next((v for v in (left_value, right_value) if isinstance(v, str) and v in ERRORS), None)
+        value = error or sum(v for v in (left_value, right_value) if isinstance(v, (int, float)))
+        return formula(sheet, row, col, f'={left.coordinate}+{right.coordinate}', value)
+
+    # The sample starts TOTAL QTY from the cumulative value three rows before
+    # the last week, then continues EACH and the final helper row sequentially.
+    add_formula(total_row, total_col + 1,
+                sheet.cell(total_row, total_col), sheet.cell(max(19, last_week_row - 3), total_col + 1))
+    add_formula(each_row, total_col + 1,
+                sheet.cell(each_row, total_col), sheet.cell(total_row, total_col + 1))
+    add_formula(continuation_row, total_col + 1,
+                sheet.cell(continuation_row, total_col), sheet.cell(each_row, total_col + 1))
+
+    date_col, week_col = total_col + 2, total_col + 3
+    date_source_rows = (max(19, last_week_row - 3), total_row, each_row)
+    for row, source_row in zip((total_row, each_row, continuation_row), date_source_rows):
+        source_date = cached_value(sheet.cell(source_row, date_col))
+        next_date = source_date + timedelta(days=7) if isinstance(source_date, (date, datetime)) else None
+        cell = formula(sheet, row, date_col, f'={letter(date_col)}{source_row}+7', next_date)
+        cell.number_format = 'yyyy-mm-dd'
+        iso_week = next_date.isocalendar().week if next_date else None
+        formula(sheet, row, week_col, f'=_xlfn.ISOWEEKNUM({letter(date_col)}{row})', iso_week).number_format = '0'
     sheet.freeze_panes = 'B19'
     sheet.print_title_rows = '1:18'
     finish_widths(sheet)
@@ -489,8 +613,15 @@ def save_with_cache(wb, path):
                         cached = cell.find('s:v', ns)
                         if cached is None:
                             cached = ET.SubElement(cell, '{'+ns['s']+'}v')
-                        cached.text = str(value)
-                        cell.set('t', 'e' if isinstance(value, str) and value in ERRORS else 'n')
+                        if isinstance(value, bool):
+                            cached.text = '1' if value else '0'
+                            cell.set('t', 'b')
+                        elif isinstance(value, (date, datetime)):
+                            cached.text = str(to_excel(value))
+                            cell.set('t', 'n')
+                        else:
+                            cached.text = str(value)
+                            cell.set('t', 'e' if isinstance(value, str) and value in ERRORS else 'n')
                     data = ET.tostring(root, encoding='utf-8', xml_declaration=True)
                 target.writestr(entry, data)
         publish_file(final, path)
@@ -537,12 +668,16 @@ def run(args):
     if not infos:
         raise ValueError('Không tìm thấy Family có item.')
     weeks = extract_weeks(reader, issues, args.start_week, args.end_week)
+    shipping_filter = None
+    if getattr(args, 'shipping_week', None):
+        infos, shipping_filter = filter_shipping_families(
+            infos, reader, extract_weeks(reader, issues), args.shipping_week)
     stamp = args.date or datetime.now(timezone(timedelta(hours=7))).date()
     datasets = [prepare_family(i, reader, weeks, template, stamp, getattr(args, 'source_name', source_path.name)) for i in infos]
     output.mkdir(parents=True, exist_ok=True)
     report = {'input': str(source_path), 'template': str(template_path), 'date': stamp.isoformat(),
               'weeks': len(weeks), 'first_week': weeks[0]['label'], 'last_week': weeks[-1]['label'],
-              'issues': issues, 'families': [],
+              'issues': issues, 'families': [], 'shipping_filter': shipping_filter,
               'notes': ['Dùng cache nguồn: cần tính lại và lưu Excel trước khi chạy nếu nguồn thay đổi.',
                         'Giữ nguyên đơn vị nguồn, không nhân 1000 và không làm tròn.',
                         'Tách thị trường theo quốc gia + destination + version.']}
@@ -607,6 +742,7 @@ def main():
     parser.add_argument('--week', type=int, choices=range(1,54), default=40)
     parser.add_argument('--date', type=date.fromisoformat, help='Ngày báo cáo YYYY-MM-DD; mặc định UTC+7')
     parser.add_argument('--start-week', type=week_arg)
+    parser.add_argument('--shipping-week', type=week_arg, help='Chỉ xuất Family có giao trong YYYY/WW; giữ toàn bộ lịch')
     parser.add_argument('--end-week', type=week_arg)
     parser.add_argument('--strict', action='store_true', help='Dừng nếu gặp lỗi nguồn/tuần ISO không hợp lệ')
     parser.add_argument('--overwrite', action='store_true')

@@ -145,3 +145,17 @@ node --test test/test_inline_editor.cjs test/test_progress.cjs
 Mọi trường hợp về ô gộp phức tạp, công thức lũy kế, khôi phục giá trị gốc, xử lý tuần ISO và độc lập liên kết đều được kiểm thử tự động thành công (100% PASS).
 
 Tiến độ tạo file được gửi trực tiếp qua cùng yêu cầu tải lên (`application/x-ndjson`), kể cả trên Vercel. Thanh tiến độ dành 0–80% cho tạo Family, 80–99% cho đối chiếu với nguồn và chỉ hiển thị 100% khi báo cáo đã lưu xong. Đây là tỷ lệ theo các bước hoàn thành, không phải phần trăm thời gian. Đồng hồ chạy trên trình duyệt từ lúc bấm tạo; hoàn tất sẽ đóng lớp tiến độ và mở tab kết quả. Cần deploy lại cả giao diện và `ui_server.py` để áp dụng.
+# Lọc Family theo tuần giao hàng
+
+Cấu trúc module và hướng mở rộng: xem [ARCHITECTURE.md](ARCHITECTURE.md).
+Sau khi sửa module giao diện, chạy `node scripts/build_ui.mjs`; trình duyệt dùng bản gộp `ui/app.js`.
+
+Trên web, chọn **tuần giao hàng** trước khi chọn file nguồn (mặc định 2026/40).
+Chỉ tạo file cho Family có ít nhất một item với số lượng **lớn hơn 0** tại tuần đó trên SUM.
+Mỗi file được chọn vẫn giữ tất cả item, toàn bộ lịch tuần và định dạng template.
+Kết quả hiển thị số Family được xuất/tổng số phát hiện; báo cáo ghi danh sách Family bị loại.
+Tuần không có trong nguồn hoặc lỗi Excel khiến không xác định được lịch giao sẽ được báo rõ, không coi lỗi là 0.
+Khi tái tạo sau khi sửa nguồn, bộ lọc tuần được áp dụng lại.
+
+CLI: thêm `--shipping-week 2026/40`. Tham số `--week` chỉ đặt tuần báo cáo trong tên file;
+`--shipping-week` mới là bộ lọc Family, không cắt bớt lịch như `--start-week`/`--end-week`.
